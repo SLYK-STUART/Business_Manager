@@ -1,0 +1,619 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/auth/auth_provider.dart';
+import '../../../core/theme/app_colors.dart';
+import '../data/cash_collection_repository.dart';
+
+final cashCollectionRepositoryProvider = Provider(
+      (ref) => CashCollectionRepository(ref.watch(apiClientProvider)),
+);
+
+final collectionSummaryProvider = FutureProvider.family.autoDispose((ref, String module) async {
+  return ref.watch(cashCollectionRepositoryProvider).getSummary(module);
+});
+
+class CashCollectionScreen extends ConsumerStatefulWidget {
+  final String module; // "bar" or "rooms"
+  const CashCollectionScreen({super.key, this.module = "bar"});
+
+  @override
+  ConsumerState<CashCollectionScreen> createState() => _CashCollectionScreenState();
+}
+
+class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
+  final _amountController = TextEditingController();
+  bool _submitting = false;
+  bool _leaveRemainder = false;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case "overage_pending":
+        return "Overage — pending approval";
+      case "overage_approved":
+        return "Overage — approved";
+      case "matched":
+        return "Matched — closed";
+      case "partial_left_in_business":
+        return "Partial — remainder left in business";
+      case "shortfall_pending":
+        return "Shortfall — pending approval";
+      case "shortfall_approved":
+        return "Shortfall — approved";
+      default:
+        return status;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case "matched":
+        return AppColors.success;
+      case "partial_left_in_business":
+        return AppColors.info;
+      case "shortfall_pending":
+        return AppColors.warning;
+      case "overage_pending":
+        return AppColors.warning;
+      case "overage_approved":
+        return AppColors.success;
+      case "shortfall_approved":
+        return AppColors.error;
+      default:
+        return AppColors.textSecondaryOnLight;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final summaryAsync = ref.watch(collectionSummaryProvider(widget.module));
+    final isRooms = widget.module == "rooms";
+
+    return Scaffold(
+      backgroundColor: AppColors.surfaceLight,
+      appBar: AppBar(
+        backgroundColor: AppColors.surfaceLight,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: true,
+        title: Text(
+          isRooms ? 'Rooms Cash Collection' : 'Cash Collection',
+          style: const TextStyle(
+            color: AppColors.textPrimaryOnLight,
+            fontWeight: FontWeight.w600,
+            fontSize: 18,
+            letterSpacing: -0.3,
+          ),
+        ),
+        iconTheme: const IconThemeData(color: AppColors.textPrimaryOnLight),
+      ),
+      body: summaryAsync.when(
+        loading: () => const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+        error: (e, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'Failed to load:\n$e',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.error),
+            ),
+          ),
+        ),
+        data: (summary) {
+          final sales = summary['sales'] as List? ?? [];
+          final nbts = summary['non_business_transactions'] as List? ?? [];
+
+          // Expected to collect = the authoritative stored figure (already
+          // excludes loans, and correctly carries forward any partial
+          // remainder left in the business from a prior collection).
+          final expectedAmount = summary['expected_amount'];
+          final lastStatus = summary['latest_collection_status'] as String?;
+
+          return RefreshIndicator(
+            color: AppColors.primary,
+            onRefresh: () async => ref.invalidate(collectionSummaryProvider(widget.module)),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+              children: [
+                // ── Expected to Collect (hero card) ───────────────────────
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    gradient: AppColors.goldSlab,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withOpacity(0.35),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Expected to Collect',
+                        style: TextStyle(
+                          color: AppColors.textOnPrimary.withOpacity(0.85),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'UGX $expectedAmount',
+                        style: const TextStyle(
+                          color: AppColors.textOnPrimary,
+                          fontSize: 32,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -1,
+                        ),
+                      ),
+                      if (lastStatus != null) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.textOnPrimary.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Last: ${_statusLabel(lastStatus)}',
+                            style: const TextStyle(
+                              color: AppColors.textOnPrimary,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // ── Money & Goods Distribution ────────────────────────────
+                _sectionCard(
+                  title: isRooms ? 'Rooms Revenue Distribution' : 'Money & Goods Distribution',
+                  child: Column(
+                    children: [
+                      _distributionRow(
+                        isRooms ? 'Room Payments' : 'Cash Sales',
+                        'UGX ${summary['cash_sales_amount']}',
+                        AppColors.success,
+                      ),
+                      if (!isRooms)
+                        _distributionRow(
+                          'On Loan (not yet collectable)',
+                          'UGX ${summary['loan_amount']}',
+                          AppColors.warning,
+                        ),
+                      const Divider(height: 24, color: AppColors.borderOnLight),
+                      _distributionRow(
+                        isRooms ? 'Total Room Revenue' : 'Total Goods Sold (incl. loans)',
+                        'UGX ${summary['total_sales_amount_including_loans']}',
+                        AppColors.textPrimaryOnLight,
+                      ),
+                      if (!isRooms) ...[
+                        const SizedBox(height: 8),
+                        _distributionRow(
+                          'Giveaways',
+                          '${summary['giveaway_count']} items — UGX ${summary['giveaway_value']}',
+                          AppColors.info,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // ── Sales / Bookings ──────────────────────────────────────
+                _sectionHeader(isRooms ? 'Bookings (${sales.length})' : 'Sales (${sales.length})'),
+                const SizedBox(height: 10),
+                ...sales.map((sale) {
+                  final hasDiscount = (sale['discount_total'] as num? ?? 0) > 0;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.borderOnLight),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Theme(
+                      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                        title: Text(
+                          'UGX ${sale['total_amount']}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: AppColors.textPrimaryOnLight,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'by ${sale['sold_by'] ?? 'Unknown'}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondaryOnLight,
+                          ),
+                        ),
+                        trailing: hasDiscount
+                            ? Text(
+                          '−UGX ${sale['discount_total']}',
+                          style: const TextStyle(
+                            color: AppColors.error,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        )
+                            : null,
+                        children: (sale['items'] as List? ?? []).map<Widget>((item) {
+                          return ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                            title: Text(
+                              item['name'] ?? '',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textPrimaryOnLight,
+                              ),
+                            ),
+                            trailing: Text(
+                              '×${item['quantity']}  =  UGX ${item['line_total']}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondaryOnLight,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    'Total Discounts: UGX ${summary['total_discounts']}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.error,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 28),
+
+                // ── Non-Business Transactions (bar only) ──────────────────
+                if (!isRooms) ...[
+                  _sectionHeader('Non-Business Transactions (${nbts.length})'),
+                  const SizedBox(height: 10),
+                  if (nbts.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'None recorded',
+                        style: TextStyle(color: AppColors.textSecondaryOnLight.withOpacity(0.7)),
+                      ),
+                    )
+                  else
+                    ...nbts.map((n) {
+                      final isOut = n['direction'] == 'out';
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.borderOnLight),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: (isOut ? AppColors.error : AppColors.success)
+                                    .withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                isOut ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                                size: 18,
+                                color: isOut ? AppColors.error : AppColors.success,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    n['description'] ?? '',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                      color: AppColors.textPrimaryOnLight,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Status: ${n['status']}',
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      color: AppColors.textSecondaryOnLight,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              'UGX ${n['amount']}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                                color: isOut ? AppColors.error : AppColors.success,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  const SizedBox(height: 32),
+                ],
+
+                // ── Record Collection ─────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.borderOnLight),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Record Collection',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimaryOnLight,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _amountController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+                        ],
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimaryOnLight,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Amount actually collected (UGX)',
+                          filled: true,
+                          fillColor: AppColors.surfaceMuted,
+                          labelStyle: const TextStyle(
+                            color: AppColors.textSecondaryOnLight,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: AppColors.borderOnLight),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: AppColors.borderOnLight),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: AppColors.primary, width: 1.6),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        value: _leaveRemainder,
+                        onChanged: (v) => setState(() => _leaveRemainder = v ?? false),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text(
+                          'Leave remainder in business',
+                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500),
+                        ),
+                        subtitle: const Text(
+                          'If collecting less than expected, treat the rest as intentionally left as float — no shortfall approval needed.',
+                          style: TextStyle(fontSize: 12, color: AppColors.textSecondaryOnLight),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: _submitting ? null : () => _submit(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: AppColors.textOnPrimary,
+                            disabledBackgroundColor: AppColors.primary.withOpacity(0.45),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: _submitting
+                              ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.4,
+                              color: AppColors.textOnPrimary,
+                            ),
+                          )
+                              : const Text(
+                            'Record Collection',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  Widget _sectionHeader(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: AppColors.textPrimaryOnLight,
+        letterSpacing: -0.2,
+      ),
+    );
+  }
+
+  Widget _sectionCard({required String title, required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderOnLight),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimaryOnLight,
+            ),
+          ),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _distributionRow(String label, String value, Color valueColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondaryOnLight,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+              color: valueColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    if (_amountController.text.trim().isEmpty) return;
+
+    setState(() => _submitting = true);
+    try {
+      final result = await ref
+          .read(cashCollectionRepositoryProvider)
+          .collect(double.parse(_amountController.text), _leaveRemainder, widget.module);
+
+      ref.invalidate(collectionSummaryProvider(widget.module));
+      _amountController.clear();
+      setState(() => _leaveRemainder = false);
+
+      if (mounted) {
+        final status = result['status'] as String;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_statusLabel(status)),
+            backgroundColor: _statusColor(status),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed: $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+}
