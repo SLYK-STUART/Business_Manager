@@ -26,7 +26,8 @@ class ApprovalRequestViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         approval = self.get_object()
-        resolve_approval(approval, approved=True, resolved_by=request.user)
+        classification = request.data.get("classification")  # "matched" or "shortfall" — only used for type=shortfall
+        resolve_approval(approval, approved=True, resolved_by=request.user, classification=classification)
         return Response(ApprovalRequestSerializer(approval).data)
 
     @action(detail=True, methods=["post"])

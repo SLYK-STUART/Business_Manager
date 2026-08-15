@@ -9,8 +9,8 @@ class ApprovalsRepository {
     return response.data as List<dynamic>;
   }
 
-  Future<void> approve(String id) async {
-    await client.dio.post("/approvals/$id/approve/");
+  Future<void> approve(String id, {String? classification}) async {
+    await client.dio.post("/approvals/$id/approve/", data: classification != null ? {"classification": classification} : {});
   }
 
   Future<void> reject(String id) async {

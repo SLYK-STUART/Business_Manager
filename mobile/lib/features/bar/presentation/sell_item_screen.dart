@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/item_providers.dart';
 import '../domain/cart_provider.dart';
-// Adjust this relative path to match this file's actual location under lib/.
+import '../domain/category_provider.dart';
 import '../../../core/theme/app_colors.dart';
 
 class SellItemScreen extends ConsumerStatefulWidget {
@@ -13,9 +13,9 @@ class SellItemScreen extends ConsumerStatefulWidget {
 }
 
 class _SellItemScreenState extends ConsumerState<SellItemScreen> {
-  String _query = "";
+  String _query = '';
+  String? _selectedCategoryId; // null = All
 
-  /// Looks up the current cart's CartLine for [itemId], if any.
   CartLine? cartEntryFor(String itemId) {
     final cart = ref.read(cartProvider);
     for (final line in cart) {
@@ -27,7 +27,20 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
   @override
   Widget build(BuildContext context) {
     final itemsAsync = ref.watch(itemListProvider);
+    final categoriesAsync = ref.watch(categoryListProvider);
     final cart = ref.watch(cartProvider);
+
+    // id → name lookup
+    final categoryMap = <String, String>{};
+    categoriesAsync.whenData((cats) {
+      for (final c in cats) {
+        final id = c['id']?.toString();
+        final name = c['name']?.toString();
+        if (id != null && name != null && name.isNotEmpty) {
+          categoryMap[id] = name;
+        }
+      }
+    });
 
     return Scaffold(
       backgroundColor: AppColors.surfaceLight,
@@ -36,7 +49,7 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
         elevation: 0,
         foregroundColor: AppColors.textPrimaryOnLight,
         title: const Text(
-          "Sell Item",
+          'Sell Item',
           style: TextStyle(
             color: AppColors.textPrimaryOnLight,
             fontWeight: FontWeight.w600,
@@ -44,27 +57,55 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
         ),
         actions: [
           if (cart.isNotEmpty)
-            TextButton(
-              onPressed: () => Navigator.of(context).pushNamed("/sale-confirm"),
-              child: Text(
-                "Cart (${cart.length}) →",
-                style: const TextStyle(
-                  color: AppColors.primaryDark,
-                  fontWeight: FontWeight.w600,
-                ),
+            IconButton(
+              onPressed: () =>
+                  Navigator.of(context).pushNamed('/sale-confirm'),
+              icon: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.shopping_cart),
+                  Positioned(
+                    right: -6,
+                    top: -6,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      child: Text(
+                        '${cart.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
       ),
       body: Column(
         children: [
+          // ── Search ──────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: TextField(
               style: const TextStyle(color: AppColors.textPrimaryOnLight),
               decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search, color: AppColors.textSecondaryOnLight),
-                hintText: "Search item…",
+                prefixIcon: const Icon(
+                  Icons.search,
+                  color: AppColors.textSecondaryOnLight,
+                ),
+                hintText: 'Search item…',
                 hintStyle: const TextStyle(color: AppColors.textHint),
                 filled: true,
                 fillColor: AppColors.surfaceMuted,
@@ -77,19 +118,115 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
               onChanged: (v) => setState(() => _query = v.toLowerCase()),
             ),
           ),
+
+          // ── Category chips ──────────────────────────────────────────
+          categoriesAsync.when(
+            loading: () => const SizedBox(height: 44),
+            error: (_, __) => const SizedBox(height: 44),
+            data: (categories) {
+              final chips = <_CatChip>[
+                const _CatChip(id: null, name: 'All'),
+                ...categories.map(
+                      (c) => _CatChip(
+                    id: c['id']?.toString(),
+                    name: c['name']?.toString() ?? 'Unnamed',
+                  ),
+                ),
+              ];
+
+              return SizedBox(
+                height: 44,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: chips.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, i) {
+                    final chip = chips[i];
+                    final selected = _selectedCategoryId == chip.id;
+
+                    return GestureDetector(
+                      onTap: () =>
+                          setState(() => _selectedCategoryId = chip.id),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.primary
+                              : AppColors.surfaceMuted,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.primary
+                                : AppColors.borderOnLight,
+                          ),
+                        ),
+                        child: Text(
+                          chip.name,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: selected
+                                ? AppColors.textOnPrimary
+                                : AppColors.textPrimaryOnLight,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+
+          const SizedBox(height: 8),
+
+          // ── Grid ────────────────────────────────────────────────────
           Expanded(
             child: itemsAsync.when(
               loading: () => const Center(
                 child: CircularProgressIndicator(color: AppColors.primary),
               ),
               error: (e, _) => Center(
-                child: Text("Failed: $e", style: const TextStyle(color: AppColors.error)),
+                child: Text(
+                  'Failed: $e',
+                  style: const TextStyle(color: AppColors.error),
+                ),
               ),
               data: (items) {
-                final filtered = items.where((i) => i["name"].toLowerCase().contains(_query)).toList();
+                final filtered = items.where((i) {
+                  final matchesQuery = i['name']
+                      .toString()
+                      .toLowerCase()
+                      .contains(_query);
+
+                  final itemCatId = i['category']?.toString();
+                  final matchesCategory = _selectedCategoryId == null ||
+                      itemCatId == _selectedCategoryId;
+
+                  return matchesQuery && matchesCategory;
+                }).toList();
+
+                if (filtered.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No items found',
+                      style: TextStyle(
+                        color: AppColors.textSecondaryOnLight,
+                        fontSize: 15,
+                      ),
+                    ),
+                  );
+                }
+
                 return GridView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 170),
+                  gridDelegate:
+                  const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 3,
                     childAspectRatio: 0.82,
                     crossAxisSpacing: 12,
@@ -112,17 +249,17 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
     );
   }
 
+  // ── Quantity bottom sheet ─────────────────────────────────────────────
   void _showQuantitySheet(dynamic item) {
-    final unitPrice = double.parse(item["selling_price"].toString());
-    final stock = (item["current_stock"] as num).toInt();
+    final unitPrice = double.parse(item['selling_price'].toString());
+    final stock = (item['current_stock'] as num).toInt();
 
-    // Out of stock — short-circuit to a minimal "out of stock" sheet.
     if (stock <= 0) {
       showModalBottomSheet(
         context: context,
         backgroundColor: Colors.transparent,
         builder: (context) => Container(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 60),
           decoration: const BoxDecoration(
             color: AppColors.surfaceLight,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -146,11 +283,15 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                   color: AppColors.surfaceMuted,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.inventory_2_outlined, color: AppColors.textSecondaryOnLight, size: 26),
+                child: const Icon(
+                  Icons.inventory_2_outlined,
+                  color: AppColors.textSecondaryOnLight,
+                  size: 26,
+                ),
               ),
               const SizedBox(height: 16),
               Text(
-                item["name"],
+                item['name'],
                 style: const TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.bold,
@@ -159,7 +300,7 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                "Out of stock",
+                'Out of stock',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -173,12 +314,17 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                 child: OutlinedButton(
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: AppColors.borderOnLight),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                   onPressed: () => Navigator.pop(context),
                   child: const Text(
-                    "Close",
-                    style: TextStyle(color: AppColors.textPrimaryOnLight, fontWeight: FontWeight.w600),
+                    'Close',
+                    style: TextStyle(
+                      color: AppColors.textPrimaryOnLight,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -189,14 +335,13 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
       return;
     }
 
-    // Prefill quantity from whatever's already in the cart for this item.
-    final existing = cartEntryFor(item["id"].toString());
+    final existing = cartEntryFor(item['id'].toString());
     int quantity = existing?.quantity ?? 1;
-    if (quantity > stock) quantity = stock; // stock may have shrunk since it was added
+    if (quantity > stock) quantity = stock;
     bool applyDiscount = (existing?.discount ?? 0) > 0;
     double discount = existing?.discount ?? 0;
     final discountController = TextEditingController(
-      text: discount > 0 ? discount.toStringAsFixed(0) : "",
+      text: discount > 0 ? discount.toStringAsFixed(0) : '',
     );
 
     showModalBottomSheet(
@@ -205,14 +350,15 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
-          final subtotal = (unitPrice * quantity) - (applyDiscount ? discount : 0);
+          final subtotal =
+              (unitPrice * quantity) - (applyDiscount ? discount : 0);
 
           return Container(
             padding: EdgeInsets.only(
               left: 20,
               right: 20,
               top: 12,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 80,
             ),
             decoration: const BoxDecoration(
               color: AppColors.surfaceLight,
@@ -221,7 +367,6 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Drag handle
                 Container(
                   width: 40,
                   height: 4,
@@ -232,7 +377,7 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Header: thumbnail, name, price/stock, close button
+                // Header
                 Row(
                   children: [
                     Container(
@@ -241,15 +386,21 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                       decoration: BoxDecoration(
                         color: AppColors.surfaceMuted,
                         borderRadius: BorderRadius.circular(10),
-                        image: item["photo_url"] != null && item["photo_url"] != ""
+                        image: item['photo_url'] != null &&
+                            item['photo_url'] != ''
                             ? DecorationImage(
-                          image: NetworkImage(item["photo_url"]),
+                          image: NetworkImage(item['photo_url']),
                           fit: BoxFit.cover,
                         )
                             : null,
                       ),
-                      child: (item["photo_url"] == null || item["photo_url"] == "")
-                          ? const Icon(Icons.image_outlined, color: AppColors.textSecondaryOnLight, size: 20)
+                      child: (item['photo_url'] == null ||
+                          item['photo_url'] == '')
+                          ? const Icon(
+                        Icons.image_outlined,
+                        color: AppColors.textSecondaryOnLight,
+                        size: 20,
+                      )
                           : null,
                     ),
                     const SizedBox(width: 12),
@@ -258,7 +409,7 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            item["name"],
+                            item['name'],
                             style: const TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.bold,
@@ -267,11 +418,15 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            "UGX ${unitPrice.toStringAsFixed(2)} each · $stock in stock",
+                            'UGX ${unitPrice.toStringAsFixed(2)} each · $stock in stock',
                             style: TextStyle(
                               fontSize: 13,
-                              color: quantity >= stock ? AppColors.warning : AppColors.textSecondaryOnLight,
-                              fontWeight: quantity >= stock ? FontWeight.w600 : FontWeight.w400,
+                              color: quantity >= stock
+                                  ? AppColors.warning
+                                  : AppColors.textSecondaryOnLight,
+                              fontWeight: quantity >= stock
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
                             ),
                           ),
                         ],
@@ -286,15 +441,19 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                           color: AppColors.surfaceMuted,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.close, size: 18, color: AppColors.textSecondaryOnLight),
+                        child: const Icon(
+                          Icons.close,
+                          size: 18,
+                          color: AppColors.textSecondaryOnLight,
+                        ),
                       ),
                     ),
                   ],
                 ),
 
                 const SizedBox(height: 24),
-                Text(
-                  "QUANTITY",
+                const Text(
+                  'QUANTITY',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -304,17 +463,19 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // Quantity stepper
+                // Stepper
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     _StepperButton(
                       icon: Icons.remove,
                       filled: false,
-                      onTap: () => setSheetState(() => quantity = quantity > 1 ? quantity - 1 : 1),
+                      onTap: () => setSheetState(
+                            () => quantity = quantity > 1 ? quantity - 1 : 1,
+                      ),
                     ),
                     Text(
-                      "$quantity",
+                      '$quantity',
                       style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
@@ -332,11 +493,12 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                   ],
                 ),
                 if (quantity >= stock)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
                     child: Text(
-                      "Max available: $stock",
-                      style: const TextStyle(fontSize: 12, color: AppColors.warning),
+                      'Max available',
+                      style:
+                      TextStyle(fontSize: 12, color: AppColors.warning),
                     ),
                   ),
 
@@ -349,11 +511,14 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      "Subtotal",
-                      style: TextStyle(fontSize: 14, color: AppColors.textSecondaryOnLight),
+                      'Subtotal',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textSecondaryOnLight,
+                      ),
                     ),
                     Text(
-                      "\$${(unitPrice * quantity).toStringAsFixed(2)}",
+                      'UGX ${(unitPrice * quantity).toStringAsFixed(2)}',
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -372,11 +537,18 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                   children: [
                     const Row(
                       children: [
-                        Icon(Icons.local_offer_outlined, size: 18, color: AppColors.textPrimaryOnLight),
+                        Icon(
+                          Icons.local_offer_outlined,
+                          size: 18,
+                          color: AppColors.textPrimaryOnLight,
+                        ),
                         SizedBox(width: 8),
                         Text(
-                          "Apply discount",
-                          style: TextStyle(fontSize: 14, color: AppColors.textPrimaryOnLight),
+                          'Apply discount',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textPrimaryOnLight,
+                          ),
                         ),
                       ],
                     ),
@@ -385,7 +557,8 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                       activeColor: AppColors.textOnPrimary,
                       activeTrackColor: AppColors.toggleActive,
                       inactiveTrackColor: AppColors.toggleInactive,
-                      onChanged: (v) => setSheetState(() => applyDiscount = v),
+                      onChanged: (v) =>
+                          setSheetState(() => applyDiscount = v),
                     ),
                   ],
                 ),
@@ -396,10 +569,14 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                     child: TextField(
                       controller: discountController,
                       keyboardType: TextInputType.number,
-                      style: const TextStyle(color: AppColors.textPrimaryOnLight),
+                      style: const TextStyle(
+                        color: AppColors.textPrimaryOnLight,
+                      ),
                       decoration: InputDecoration(
-                        labelText: "Discount amount",
-                        labelStyle: const TextStyle(color: AppColors.textSecondaryOnLight),
+                        labelText: 'Discount amount',
+                        labelStyle: const TextStyle(
+                          color: AppColors.textSecondaryOnLight,
+                        ),
                         filled: true,
                         fillColor: AppColors.surfaceMuted,
                         border: OutlineInputBorder(
@@ -407,23 +584,28 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                           borderSide: BorderSide.none,
                         ),
                       ),
-                      onChanged: (v) => setSheetState(() => discount = double.tryParse(v) ?? 0),
+                      onChanged: (v) => setSheetState(
+                            () => discount = double.tryParse(v) ?? 0,
+                      ),
                     ),
                   ),
 
                 const Divider(color: AppColors.borderOnLight, height: 1),
                 const SizedBox(height: 12),
 
-                // Transaction total
+                // Total
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      "Transaction total · 1 line",
-                      style: TextStyle(fontSize: 13, color: AppColors.textSecondaryOnLight),
+                      'Transaction total · 1 line',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondaryOnLight,
+                      ),
                     ),
                     Text(
-                      "\$${subtotal.toStringAsFixed(2)}",
+                      'UGX ${subtotal.toStringAsFixed(2)}',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -435,7 +617,6 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
 
                 const SizedBox(height: 20),
 
-                // Review Sale button
                 SizedBox(
                   width: double.infinity,
                   height: 52,
@@ -450,19 +631,24 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                     ),
                     onPressed: () {
                       ref.read(cartProvider.notifier).addOrUpdate(
-                        item["id"],
-                        item["name"],
+                        item['id'],
+                        item['name'],
                         unitPrice,
                         quantity,
                       );
                       if (applyDiscount) {
-                        ref.read(cartProvider.notifier).setDiscount(item["id"], discount);
+                        ref
+                            .read(cartProvider.notifier)
+                            .setDiscount(item['id'], discount);
                       }
                       Navigator.pop(context);
                     },
                     child: const Text(
-                      "Review Sale",
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      'Add to cart',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -475,14 +661,22 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
   }
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+class _CatChip {
+  final String? id;
+  final String name;
+  const _CatChip({required this.id, required this.name});
+}
+
 class _ItemGridCard extends StatelessWidget {
   final dynamic item;
   const _ItemGridCard({required this.item});
 
   @override
   Widget build(BuildContext context) {
-    final stock = item["current_stock"];
-    final hasPhoto = item["photo_url"] != null && item["photo_url"] != "";
+    final stock = item['current_stock'];
+    final hasPhoto = item['photo_url'] != null && item['photo_url'] != '';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -496,12 +690,19 @@ class _ItemGridCard extends StatelessWidget {
                     color: AppColors.surfaceMuted,
                     borderRadius: BorderRadius.circular(14),
                     image: hasPhoto
-                        ? DecorationImage(image: NetworkImage(item["photo_url"]), fit: BoxFit.cover)
+                        ? DecorationImage(
+                      image: NetworkImage(item['photo_url']),
+                      fit: BoxFit.cover,
+                    )
                         : null,
                   ),
                   child: !hasPhoto
                       ? const Center(
-                    child: Icon(Icons.inventory_2_outlined, color: AppColors.textSecondaryOnLight, size: 32),
+                    child: Icon(
+                      Icons.inventory_2_outlined,
+                      color: AppColors.textSecondaryOnLight,
+                      size: 32,
+                    ),
                   )
                       : null,
                 ),
@@ -510,13 +711,14 @@ class _ItemGridCard extends StatelessWidget {
                 top: 8,
                 right: 8,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: AppColors.stockBadge,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    "$stock left",
+                    '$stock left',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -530,7 +732,7 @@ class _ItemGridCard extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          item["name"],
+          item['name'],
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
@@ -541,8 +743,11 @@ class _ItemGridCard extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          "UGX ${item["selling_price"]}",
-          style: const TextStyle(fontSize: 12, color: AppColors.textSecondaryOnLight),
+          'UGX ${item['selling_price']}',
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textSecondaryOnLight,
+          ),
         ),
       ],
     );
@@ -577,7 +782,9 @@ class _StepperButton extends StatelessWidget {
           ),
           child: Icon(
             icon,
-            color: filled ? AppColors.textOnPrimary : AppColors.textPrimaryOnLight,
+            color: filled
+                ? AppColors.textOnPrimary
+                : AppColors.textPrimaryOnLight,
           ),
         ),
       ),

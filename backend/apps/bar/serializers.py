@@ -2,6 +2,7 @@ from rest_framework import serializers
 from datetime import  timedelta
 from django.utils import timezone
 from django.db import  transaction
+from django.db.models import Sum
 from .models import (Item, ItemCategory, PriceChangeLog,
                      RestockRecord, Sale, SaleLineItem, Loan, Customer, LoanRepayment,
                     FreeGiveaway, NonBusinessTransaction, CollectionPeriod, CashCollection, Salary,
@@ -45,11 +46,12 @@ class ItemSerializer(serializers.ModelSerializer):
         if photo:
             from django.core.files.storage import default_storage
             path = default_storage.save(f"items/{photo.name}", photo)
-            item.photo_url = default_storage.url(path)
+            request = self.context.get("request")
+            url = default_storage.url(path)
+            item.photo_url = request.build_absolute_uri(url) if request else url
         item.save()
         _log_initial_stock(item, self.context["request"])
         return item
-
 
 
 
@@ -64,7 +66,9 @@ class ItemSerializer(serializers.ModelSerializer):
         if photo:
             from django.core.files.storage import default_storage
             path = default_storage.save(f"items/{photo.name}", photo)
-            instance.photo_url = default_storage.url(path)
+            request = self.context.get("request")
+            url = default_storage.url(path)
+            instance.photo_url = request.build_absolute_uri(url) if request else url
         return super().update(instance, validated_data)
 
 class ItemManagerSerializer(serializers.ModelSerializer):
@@ -76,7 +80,7 @@ class ItemManagerSerializer(serializers.ModelSerializer):
             "id", "name", "category", "selling_price", "photo", "photo_url",
             "current_stock", "low_stock_threshold", "is_active", "created_at",
         ]
-        read_only_fields = ["id", "current_stock", "photo_url", "created_at", "is_active"]
+        read_only_fields = ["id", "photo_url", "created_at", "is_active"]
 
     def create(self, validated_data):
         photo = validated_data.pop("photo", None)
@@ -84,11 +88,15 @@ class ItemManagerSerializer(serializers.ModelSerializer):
         if photo:
             from django.core.files.storage import default_storage
             path = default_storage.save(f"items/{photo.name}", photo)
-            item.photo_url = default_storage.url(path)
+            request = self.context.get("request")
+            url = default_storage.url(path)
+            item.photo_url = request.build_absolute_uri(url) if request else url
         item.save()
+        _log_initial_stock(item, self.context["request"])
         return item
 
     def update(self, instance, validated_data):
+        validated_data.pop("current_stock", None)
         photo = validated_data.pop("photo", None)
         new_price = validated_data.get("selling_price")
         if new_price is not None and new_price != instance.selling_price:
@@ -99,7 +107,9 @@ class ItemManagerSerializer(serializers.ModelSerializer):
         if photo:
             from django.core.files.storage import default_storage
             path = default_storage.save(f"items/{photo.name}", photo)
-            instance.photo_url = default_storage.url(path)
+            request = self.context.get("request")
+            url = default_storage.url(path)
+            instance.photo_url = request.build_absolute_uri(url) if request else url
         return super().update(instance, validated_data)
 class RestockSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=["unit", "bulk"], default="unit")
@@ -194,10 +204,32 @@ class SaleSerializer(serializers.ModelSerializer):
         fields = ["id", "sold_by", "total_amount", "discount_total", "status", "confirmed_at", "undo_deadline"]
 
 class LoanSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(source="customer.name", read_only=True)
+    customer_phone = serializers.CharField(source="customer.phone", read_only=True)
+
+    # From the related SaleLineItem
+    item_name = serializers.CharField(
+        source="origin_line_item.item.name", read_only=True, default=None
+    )
+    quantity = serializers.IntegerField(
+        source="origin_line_item.quantity", read_only=True, default=None
+    )
+
     class Meta:
         model = Loan
-        fields = ["id", "customer", "principal_amount", "amount_remaining", "due_date", "status", "created_at"]
-
+        fields = [
+            "id",
+            "customer",
+            "customer_name",
+            "customer_phone",
+            "item_name",
+            "quantity",
+            "principal_amount",
+            "amount_remaining",
+            "due_date",
+            "status",
+            "created_at",
+        ]
 
 class LoanRepaymentSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0.01)
@@ -205,6 +237,7 @@ class LoanRepaymentSerializer(serializers.Serializer):
     def create(self, validated_data):
         loan = self.context["loan"]
         amount = validated_data["amount"]
+        business = loan.customer.business
 
         LoanRepayment.objects.create(
             loan=loan, amount=amount, recorded_by=self.context["request"].user
@@ -216,13 +249,59 @@ class LoanRepaymentSerializer(serializers.Serializer):
         else:
             loan.status = Loan.Status.PARTIALLY_PAID
         loan.save()
+
+        period = CollectionPeriod.objects.filter(business=business, module="bar", status="open").first()
+        if period:
+            period.opening_expected_amount += amount
+            period.save()
+
         return loan
+
+
+class GiveawayLineInputSerializer(serializers.Serializer):
+    item_id = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class GiveawayBatchCreateSerializer(serializers.Serializer):
+    recipient_name = serializers.CharField()
+    line_items = GiveawayLineInputSerializer(many=True)
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        business = request.user.business
+        recipient_name = validated_data["recipient_name"]
+        created = []
+
+        with transaction.atomic():
+            for line in validated_data["line_items"]:
+                item = Item.objects.select_for_update().get(id=line["item_id"], business=business)
+                if item.current_stock < line["quantity"]:
+                    raise serializers.ValidationError(f"Insufficient stock for {item.name}")
+
+                giveaway = FreeGiveaway.objects.create(
+                    item=item, quantity=line["quantity"], recipient_name=recipient_name,
+                    created_by=request.user,
+                )
+                item.current_stock -= line["quantity"]
+                item.save()
+
+                from apps.approvals.services import create_approval_or_auto_approve
+                approval = create_approval_or_auto_approve(
+                    business=business, type_=ApprovalRequest.Type.FREE_GIVEAWAY,
+                    reference_id=giveaway.id, requested_by=request.user,
+                )
+                giveaway.approval_request = approval
+                giveaway.save()
+                created.append(giveaway)
+
+        return created
 
 
 class FreeGiveawaySerializer(serializers.ModelSerializer):
     class Meta:
         model = FreeGiveaway
-        fields = ["id", "item", "recipient_name", "created_at"]
+        fields = ["id", "item", "quantity", "recipient_name", "created_at"]
         read_only_fields = ["id", "created_at"]
 
 
@@ -240,7 +319,6 @@ class CollectionPeriodSerializer(serializers.ModelSerializer):
 
 class CashCollectionCreateSerializer(serializers.Serializer):
     collected_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
-    leave_remainder = serializers.BooleanField(default=False)
 
     def create(self, validated_data):
         business = self.context["request"].user.business
@@ -249,42 +327,36 @@ class CashCollectionCreateSerializer(serializers.Serializer):
         if not period:
             raise serializers.ValidationError("No open collection period.")
 
+        if CashCollection.objects.filter(collection_period=period, status="pending").exists():
+            raise serializers.ValidationError("A collection is already pending approval for this module.")
+
         expected = period.opening_expected_amount
         collected = validated_data["collected_amount"]
         variance = collected - expected
-        leave_remainder = validated_data.get("leave_remainder", False)
-
-        if variance == 0:
-            status_ = "matched"
-        elif variance < 0:
-            status_ = "partial_left_in_business" if leave_remainder else "shortfall_pending"
-        else:
-            status_ = "overage_pending"  # collected more than expected — needs explanation too
+        remaining = expected - collected
 
         collection = CashCollection.objects.create(
             collection_period=period, expected_amount=expected, collected_amount=collected,
-            variance=variance, status=status_, collected_by=self.context["request"].user,
+            variance=variance, previous_expected_amount=expected,
+            collected_by=self.context["request"].user,
         )
 
-        if status_ in ("shortfall_pending", "overage_pending"):
-            from apps.approvals.services import create_approval_or_auto_approve
-            approval = create_approval_or_auto_approve(
-                business=business, type_=ApprovalRequest.Type.SHORTFALL,
-                reference_id=collection.id, requested_by=self.context["request"].user,
-            )
-            collection.approval_request = approval
-            collection.refresh_from_db()
-        else:
-            period.status = "closed"
-            period.period_end = timezone.now()
-            period.closing_expected_amount = 0
-            period.save()
+        # Tentatively apply immediately — approval (or explicit classification) can revert this.
+        period.opening_expected_amount = remaining
+        period.save()
 
-            carry_forward = (expected - collected) if status_ == "partial_left_in_business" else 0
-            CollectionPeriod.objects.create(
-                business=business, module=module, status="open", opening_expected_amount=carry_forward,
-            )
+        approval = ApprovalRequest.objects.create(
+            business=business, type=ApprovalRequest.Type.SHORTFALL,
+            reference_id=collection.id, requested_by=self.context["request"].user,
+        )
 
+        if variance == 0 and "owner" in self.context["request"].user.roles:
+            # Nothing to classify — exact match is safe to auto-finalize even for Owner.
+            from apps.approvals.services import resolve_approval
+            resolve_approval(approval, approved=True, resolved_by=self.context["request"].user)
+
+        collection.approval_request = approval
+        collection.refresh_from_db()
         return collection
 
 
@@ -292,7 +364,6 @@ class CashCollectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CashCollection
         fields = ["id", "expected_amount", "collected_amount", "variance", "status", "timestamp"]
-
 
 class SalarySerializer(serializers.ModelSerializer):
     staff_name = serializers.CharField(source="staff.name", read_only=True)
@@ -310,6 +381,7 @@ class LoanUpdateSerializer(serializers.Serializer):
             loan.due_date = self.validated_data["new_due_date"]
         elif self.validated_data["action"] == "write_off":
             loan.status = Loan.Status.WRITTEN_OFF
+            loan.written_off_at = timezone.now()
         loan.save()
         return loan
 
@@ -320,14 +392,15 @@ class CollectionSummarySerializer(serializers.Serializer):
         return self._bar_summary(period)
 
     def _bar_summary(self, period):
+        since = period.last_collection_at or period.period_start
+
         sales = Sale.objects.filter(
-            business=period.business, status="confirmed", confirmed_at__gte=period.period_start,
+            business=period.business, status="confirmed", confirmed_at__gte=since,
         ).prefetch_related("line_items__item")
 
         sales_data = []
         total_discount = 0
         cash_amount = 0
-        loan_amount = 0
 
         for sale in sales:
             items = [
@@ -344,18 +417,23 @@ class CollectionSummarySerializer(serializers.Serializer):
             for li in sale.line_items.all():
                 if li.payment_status == "paid_full":
                     cash_amount += li.line_total
-                else:
-                    loan_amount += li.line_total
+
+        # Loans are independent of the collection cycle — show all currently
+        # outstanding loans for this business, not just ones tied to this period.
+        loan_amount = Loan.objects.filter(
+            customer__business=period.business,
+            status__in=["active", "partially_paid"],
+        ).aggregate(total=Sum("amount_remaining"))["total"] or 0
 
         giveaways = FreeGiveaway.objects.filter(
-            item__business=period.business, created_at__gte=period.period_start,
+            item__business=period.business, created_at__gte=since,
         )
         giveaway_count = giveaways.count()
-        giveaway_value = sum(g.item.buying_price for g in giveaways)
+        giveaway_value = sum(g.item.buying_price * g.quantity for g in giveaways)
 
         nbts = NonBusinessTransaction.objects.filter(
-            business=period.business, created_at__gte=period.period_start,
-        )
+            business=period.business, created_at__gte=since,
+        ).exclude(type=NonBusinessTransaction.Type.SALARY)
         nbt_data = [
             {
                 "id": str(n.id), "direction": n.direction, "amount": float(n.amount),
@@ -365,6 +443,21 @@ class CollectionSummarySerializer(serializers.Serializer):
         ]
 
         latest_collection = period.collections.order_by("-timestamp").first()
+
+        pending = CashCollection.objects.filter(collection_period=period, status="pending").first()
+        pending_collection = None
+        if pending:
+            pending_collection = {
+                "id": str(pending.id), "expected_amount": float(pending.expected_amount),
+                "collected_amount": float(pending.collected_amount), "variance": float(pending.variance),
+                "timestamp": pending.timestamp,
+            }
+
+        last_approved = CashCollection.objects.filter(collection_period=period, status="approved").order_by("-timestamp").first()
+        left_behind = 0
+        if last_approved:
+            remaining = last_approved.expected_amount - last_approved.collected_amount
+            left_behind = remaining if remaining > 0 else 0
 
         return {
             "period_id": str(period.id),
@@ -377,6 +470,8 @@ class CollectionSummarySerializer(serializers.Serializer):
             "latest_collection_status": latest_collection.status if latest_collection else None,
             "cash_sales_amount": float(cash_amount),
             "loan_amount": float(loan_amount),
+            "pending_collection": pending_collection,
+            "left_behind_from_last_collection": float(left_behind),
             "total_sales_amount_including_loans": float(cash_amount + loan_amount),
             "giveaway_count": giveaway_count,
             "giveaway_value": float(giveaway_value),
@@ -385,8 +480,10 @@ class CollectionSummarySerializer(serializers.Serializer):
     def _rooms_summary(self, period):
         from apps.rooms.models import RoomBooking
 
+        since = period.last_collection_at or period.period_start
+
         bookings = RoomBooking.objects.filter(
-            room__business=period.business, checkin_time__gte=period.period_start,
+            room__business=period.business, checkin_time__gte=since,
         ).select_related("room")
 
         sales_data = []
@@ -406,12 +503,29 @@ class CollectionSummarySerializer(serializers.Serializer):
 
         latest_collection = period.collections.order_by("-timestamp").first()
 
+        pending = CashCollection.objects.filter(collection_period=period, status="pending").first()
+        pending_collection = None
+        if pending:
+            pending_collection = {
+                "id": str(pending.id), "expected_amount": float(pending.expected_amount),
+                "collected_amount": float(pending.collected_amount), "variance": float(pending.variance),
+                "timestamp": pending.timestamp,
+            }
+
+        last_approved = CashCollection.objects.filter(collection_period=period, status="approved").order_by("-timestamp").first()
+        left_behind = 0
+        if last_approved:
+            remaining = last_approved.expected_amount - last_approved.collected_amount
+            left_behind = remaining if remaining > 0 else 0
+
         return {
             "period_id": str(period.id),
             "period_start": period.period_start,
             "expected_amount": float(period.opening_expected_amount),
             "module": period.module,
             "sales": sales_data,
+            "pending_collection": pending_collection,
+            "left_behind_from_last_collection": float(left_behind),
             "total_discounts": float(total_discount),
             "non_business_transactions": [],
             "latest_collection_status": latest_collection.status if latest_collection else None,
@@ -433,12 +547,14 @@ class SalaryPaySerializer(serializers.Serializer):
         nbt = NonBusinessTransaction.objects.create(
             business=salary.staff.business, direction=NonBusinessTransaction.Direction.OUT,
             amount=amount, description=f"Salary payment to {salary.staff.name}",
+            type=NonBusinessTransaction.Type.SALARY,
             created_by=request.user,
         )
         from apps.approvals.services import create_approval_or_auto_approve
         from apps.approvals.models import ApprovalRequest
         approval = create_approval_or_auto_approve(
-            business=salary.staff.business, type_=ApprovalRequest.Type.NON_BUSINESS_TRANSACTION,
+            business=salary.staff.business,
+            type_=ApprovalRequest.Type.SALARY_PAYMENT,
             reference_id=nbt.id, requested_by=request.user,
         )
         nbt.approval_request = approval

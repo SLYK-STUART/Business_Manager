@@ -61,21 +61,12 @@ class ManagerHomeScreen extends ConsumerWidget {
                       Container(
                         decoration: const BoxDecoration(color: AppColors.surfaceDark, shape: BoxShape.circle),
                         child: IconButton(
-                          icon: const Icon(Icons.notifications_outlined),
+                          icon: const Icon(Icons.person_outline),
                           color: Colors.white,
-                          onPressed: () => Navigator.of(context).pushNamed("/notifications"),
+                          onPressed: () => Navigator.of(context).pushNamed("/profile"),
                         ),
                       ),
                     ],
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.logout, color: AppColors.textSecondaryOnLight),
-                    onPressed: () async {
-                      await ref.read(apiClientProvider).clearTokens();
-                      if (context.mounted) {
-                        Navigator.of(context).pushNamedAndRemoveUntil("/login", (route) => false);
-                      }
-                    },
                   ),
                 ],
               ),

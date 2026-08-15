@@ -16,7 +16,7 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
   String _typeLabel(String type) {
     switch (type) {
       case 'shortfall':
-        return 'Cash Shortfall';
+        return 'Money collected';
       case 'free_giveaway':
         return 'Free / Giveaway';
       case 'non_business_transaction':
@@ -57,7 +57,7 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
     final detail = item['detail'];
     if (detail == null) return '';
     if (type == 'shortfall') {
-      return 'Expected UGX ${detail['expected_amount']} — Collected UGX ${detail['collected_amount']} (variance UGX ${detail['variance']})';
+      return 'Old balance UGX ${detail['expected_amount']}  \nCollected UGX ${detail['collected_amount']} \n(New balance UGX ${detail['variance']})';
     } else if (type == 'free_giveaway') {
       return '${detail['item_name']} → ${detail['recipient_name']} (value UGX ${detail['value']})';
     } else if (type == 'non_business_transaction') {
@@ -258,68 +258,102 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                             // Actions (pending only)
                             if (statusFilter == 'pending') ...[
                               const SizedBox(height: 16),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 44,
-                                      child: OutlinedButton(
-                                        onPressed:
-                                        isProcessing ? null : () => _act(id, false),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: AppColors.error,
-                                          side: const BorderSide(
-                                            color: AppColors.error,
-                                            width: 1.3,
+                              if (item['type'] == 'shortfall') ...[
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: OutlinedButton(
+                                          onPressed: isProcessing ? null : () => _act(id, false),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: AppColors.error,
+                                            side: const BorderSide(color: AppColors.error, width: 1.3),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                           ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                        child: const Text(
-                                          'Reject',
-                                          style: TextStyle(fontWeight: FontWeight.w600),
+                                          child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.w600)),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 44,
-                                      child: ElevatedButton(
-                                        onPressed:
-                                        isProcessing ? null : () => _act(id, true),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: AppColors.primary,
-                                          foregroundColor: AppColors.textOnPrimary,
-                                          disabledBackgroundColor:
-                                          AppColors.primary.withOpacity(0.45),
-                                          elevation: 0,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: OutlinedButton(
+                                          onPressed: isProcessing ? null : () => _act(id, true, classification: "matched"),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: AppColors.success,
+                                            side: const BorderSide(color: AppColors.success, width: 1.3),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                           ),
-                                        ),
-                                        child: isProcessing
-                                            ? const SizedBox(
-                                          height: 18,
-                                          width: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2.2,
-                                            color: AppColors.textOnPrimary,
-                                          ),
-                                        )
-                                            : const Text(
-                                          'Approve',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                          ),
+                                          child: const Text('Matched / Left in Business', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5), textAlign: TextAlign.center),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: ElevatedButton(
+                                          onPressed: isProcessing ? null : () => _act(id, true, classification: "shortfall"),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppColors.error,
+                                            foregroundColor: Colors.white,
+                                            disabledBackgroundColor: AppColors.error.withOpacity(0.45),
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          ),
+                                          child: isProcessing
+                                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
+                                              : const Text('Genuine Shortfall', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5), textAlign: TextAlign.center),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ] else ...[
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: OutlinedButton(
+                                          onPressed: isProcessing ? null : () => _act(id, false),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: AppColors.error,
+                                            side: const BorderSide(color: AppColors.error, width: 1.3),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          ),
+                                          child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.w600)),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: ElevatedButton(
+                                          onPressed: isProcessing ? null : () => _act(id, true),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppColors.primary,
+                                            foregroundColor: AppColors.textOnPrimary,
+                                            disabledBackgroundColor: AppColors.primary.withOpacity(0.45),
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          ),
+                                          child: isProcessing
+                                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.textOnPrimary))
+                                              : const Text('Approve', style: TextStyle(fontWeight: FontWeight.w700)),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ],
                         ),
@@ -335,12 +369,12 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
     );
   }
 
-  Future<void> _act(String id, bool approve) async {
+  Future<void> _act(String id, bool approve, {String? classification}) async {
     setState(() => _processing.add(id));
     try {
       final repo = ref.read(approvalsRepositoryProvider);
       if (approve) {
-        await repo.approve(id);
+        await repo.approve(id, classification: classification);
       } else {
         await repo.reject(id);
       }
@@ -348,11 +382,7 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed: $e'),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-          ),
+          SnackBar(content: Text('Failed: $e'), backgroundColor: AppColors.error, behavior: SnackBarBehavior.floating),
         );
       }
     } finally {

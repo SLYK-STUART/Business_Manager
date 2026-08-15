@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import  MultiPartParser, FormParser, JSONParser
 from django.utils import timezone
+from django.db.models import F
 from .models import Item, ItemCategory, RestockRecord, Sale, Customer, Loan, CollectionPeriod, CashCollection, Salary, FreeGiveaway, NonBusinessTransaction
 from .serializers import (ItemSerializer, ItemCategorySerializer,
                           RestockSerializer, SaleSerializer, SaleCreateSerializer,
@@ -10,7 +11,7 @@ from .serializers import (ItemSerializer, ItemCategorySerializer,
                           LoanSerializer, LoanRepaymentSerializer, FreeGiveawaySerializer,
                           CashCollectionSerializer,
                           CashCollectionCreateSerializer, CollectionPeriodSerializer,
-                          SalarySerializer,
+                          SalarySerializer, GiveawayBatchCreateSerializer,
                           NonBusinessTransactionSerializer, LoanUpdateSerializer,
                             PendingPricingSerializer, SetRestockPriceSerializer,
                           CollectionSummarySerializer, ItemManagerSerializer, SalaryPaymentSerializer, SalaryPaySerializer
@@ -79,7 +80,7 @@ class ItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def low_stock(self, request):
-        items = self.get_queryset().filter(current_stock__lte=("low_stock_threshold"))
+        items = self.get_queryset().filter(current_stock__lte=F("low_stock_threshold"))
         return Response(ItemSerializer(items, many=True).data)
 
     @action(detail=True, methods=["get"])
@@ -176,16 +177,11 @@ class FreeGiveawayViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return FreeGiveaway.objects.filter(item__business=self.request.user.business)
 
-    def perform_create(self, serializer):
-        giveaway = serializer.save(created_by=self.request.user)
-        approval = create_approval_or_auto_approve(
-            business=self.request.user.business,
-            type_=ApprovalRequest.Type.FREE_GIVEAWAY,
-            reference_id=giveaway.id,
-            requested_by=self.request.user,
-        )
-        giveaway.approval_request = approval
-        giveaway.save()
+    def create(self, request, *args, **kwargs):
+        serializer = GiveawayBatchCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        giveaways = serializer.save()
+        return Response(FreeGiveawaySerializer(giveaways, many=True).data, status=status.HTTP_201_CREATED)
 
 
 class NonBusinessTransactionViewSet(viewsets.ModelViewSet):

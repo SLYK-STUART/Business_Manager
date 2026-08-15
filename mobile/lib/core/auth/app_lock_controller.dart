@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'lock_repository.dart';
 import 'auth_provider.dart';
@@ -12,9 +13,16 @@ enum AppLockState { unlocked, locked }
 class AppLockController extends StateNotifier<AppLockState> with WidgetsBindingObserver {
   DateTime? _backgroundedAt;
   static const _graceDuration = Duration(minutes: 2);
+  final _storage = const FlutterSecureStorage();
 
-  AppLockController() : super(AppLockState.unlocked) {
+  AppLockController() : super(AppLockState.locked) {
     WidgetsBinding.instance.addObserver(this);
+    _initLockState();
+  }
+
+  Future<void> _initLockState() async {
+    final token = await _storage.read(key: "access_token");
+    state = token != null ? AppLockState.locked: AppLockState.unlocked;
   }
 
   @override

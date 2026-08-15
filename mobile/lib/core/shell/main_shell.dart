@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:mobile/features/bar/presentation/expected_collections_stats_screen.dart';
+import '../../features/rooms/presentation/room_reports_screen.dart';
 import '../theme/app_colors.dart';
 import '../../widgets/floating_bottom_nav.dart';
 import '../../features/owner_dashboard/presentation/owner_dashboard_screen.dart';
@@ -18,8 +20,8 @@ class _MainShellState extends State<MainShell> {
 
   static const _screens = [
     OwnerDashboardScreen(),
-    ItemListScreen(),
-    LoansScreen(),
+    ExpectedCollectionsStatsScreen(),
+    RoomReportsScreen(),
     ReportsScreen(),
   ];
 
@@ -34,8 +36,8 @@ class _MainShellState extends State<MainShell> {
         onTap: (i) => setState(() => _index = i),
         items: const [
           NavItem(Icons.home_rounded, "Home"),
-          NavItem(Icons.inventory_2_rounded, "Inventory"),
-          NavItem(Icons.request_page_rounded, "Loans"),
+          NavItem(Icons.inventory_2_rounded, "Status"),
+          NavItem(Icons.house, "Rooms"),
           NavItem(Icons.bar_chart_outlined, "Reports"),
         ],
       ),

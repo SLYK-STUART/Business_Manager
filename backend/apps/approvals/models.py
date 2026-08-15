@@ -9,17 +9,23 @@ class ApprovalRequest(models.Model):
         SHORTFALL = "shortfall", "Shortfall"
         FREE_GIVEAWAY = "free_giveaway", "Free giveaway"
         NON_BUSINESS_TRANSACTION = "non_business_transaction", "Non-business transaction"
+        SALARY_PAYMENT = "salary_payment", "Salary payment"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
 
+    class Classification(models.TextChoices):
+        MATCHED = "matched", "Matched / left in business"
+        SHORTFALL = "shortfall", "Genuine shortfall"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey(Business, on_delete=models.CASCADE)
     type = models.CharField(max_length=30, choices=Type.choices)
     reference_id = models.UUIDField()
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    classification = models.CharField(max_length=15, choices=Classification.choices, null=True, blank=True)
     requested_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="approvals_requested")
     resolved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="approvals_resolved")
     requested_at = models.DateTimeField(auto_now_add=True)

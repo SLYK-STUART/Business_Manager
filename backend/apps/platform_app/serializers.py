@@ -42,3 +42,24 @@ class OwnerCreateSerializer(serializers.Serializer):
             roles=["owner"],
         )
         return user
+
+class BusinessDetailSerializer(serializers.ModelSerializer):
+    modules = BusinessModuleSerializer(many=True, read_only=True)
+    staff_count = serializers.SerializerMethodField()
+    owner_name = serializers.SerializerMethodField()
+    owner_phone = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Business
+        fields = ["id", "name", "address", "is_active", "created_at", "modules", "staff_count", "owner_name", "owner_phone"]
+
+    def get_staff_count(self, obj):
+        return obj.staff.filter(is_active=True).count()
+
+    def get_owner_name(self, obj):
+        owner = obj.staff.filter(roles__contains=["owner"]).first()
+        return owner.name if owner else None
+
+    def get_owner_phone(self, obj):
+        owner = obj.staff.filter(roles__contains=["owner"]).first()
+        return owner.phone if owner else None

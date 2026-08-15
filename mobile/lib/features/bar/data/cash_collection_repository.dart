@@ -9,10 +9,9 @@ class CashCollectionRepository {
     return response.data;
   }
 
-  Future<Map<String, dynamic>> collect(double amount, bool leaveRemainder, String module) async {
+  Future<Map<String, dynamic>> collect(double amount, String module) async {
     final response = await client.dio.post("/bar/cash-collections/", data: {
       "collected_amount": amount,
-      "leave_remainder": leaveRemainder,
       "module": module,
     });
     return response.data;

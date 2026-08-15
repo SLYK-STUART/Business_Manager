@@ -112,6 +112,18 @@ class StaffHomeScreen extends ConsumerWidget {
                       onPressed: () => Navigator.of(context).pushNamed("/activity-log"),
                       child: const Text('Activity Logs')
                   ),
+                  TextButton(
+                      onPressed: () => Navigator.of(context).pushNamed("/profile"),
+                      child: const Text('Profile')
+                  ),
+                  TextButton(
+                      onPressed: () => Navigator.of(context).pushNamed("/room_management"),
+                      child: const Text('Room Management')
+                  ),
+                  TextButton(
+                      onPressed: () => Navigator.of(context).pushNamed("/stats"),
+                      child: const Text('Stats')
+                  ),
                   const SizedBox(height: 40,),
                 ],
               ),

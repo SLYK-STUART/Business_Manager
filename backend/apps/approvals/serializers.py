@@ -27,8 +27,9 @@ class ApprovalRequestSerializer(serializers.ModelSerializer):
                 g = FreeGiveaway.objects.get(id=obj.reference_id)
                 return {
                     "item_name": g.item.name,
+                    "quantity": g.quantity,
                     "recipient_name": g.recipient_name,
-                    "value": float(g.item.buying_price),
+                    "value": float(g.item.buying_price * g.quantity),
                 }
             elif obj.type == "non_business_transaction":
                 from apps.bar.models import NonBusinessTransaction

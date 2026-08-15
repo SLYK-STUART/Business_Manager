@@ -24,50 +24,11 @@ class CashCollectionScreen extends ConsumerStatefulWidget {
 class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
   final _amountController = TextEditingController();
   bool _submitting = false;
-  bool _leaveRemainder = false;
 
   @override
   void dispose() {
     _amountController.dispose();
     super.dispose();
-  }
-
-  String _statusLabel(String status) {
-    switch (status) {
-      case "overage_pending":
-        return "Overage — pending approval";
-      case "overage_approved":
-        return "Overage — approved";
-      case "matched":
-        return "Matched — closed";
-      case "partial_left_in_business":
-        return "Partial — remainder left in business";
-      case "shortfall_pending":
-        return "Shortfall — pending approval";
-      case "shortfall_approved":
-        return "Shortfall — approved";
-      default:
-        return status;
-    }
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case "matched":
-        return AppColors.success;
-      case "partial_left_in_business":
-        return AppColors.info;
-      case "shortfall_pending":
-        return AppColors.warning;
-      case "overage_pending":
-        return AppColors.warning;
-      case "overage_approved":
-        return AppColors.success;
-      case "shortfall_approved":
-        return AppColors.error;
-      default:
-        return AppColors.textSecondaryOnLight;
-    }
   }
 
   @override
@@ -110,12 +71,9 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
         data: (summary) {
           final sales = summary['sales'] as List? ?? [];
           final nbts = summary['non_business_transactions'] as List? ?? [];
-
-          // Expected to collect = the authoritative stored figure (already
-          // excludes loans, and correctly carries forward any partial
-          // remainder left in the business from a prior collection).
           final expectedAmount = summary['expected_amount'];
-          final lastStatus = summary['latest_collection_status'] as String?;
+          final pending = summary['pending_collection'] as Map<String, dynamic>?;
+          final leftBehind = (summary['left_behind_from_last_collection'] as num?) ?? 0;
 
           return RefreshIndicator(
             color: AppColors.primary,
@@ -123,6 +81,42 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
               children: [
+                // ── Pending approval alert ─────────────────────────────────
+                if (pending != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.warning.withOpacity(0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.hourglass_top_rounded, color: AppColors.warning, size: 22),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Collection awaiting approval',
+                                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: AppColors.warning),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Collected UGX ${pending['collected_amount']} of UGX ${pending['expected_amount']} expected — remaining will only be finalized once approved.',
+                                style: const TextStyle(fontSize: 12, color: AppColors.textSecondaryOnLight),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 // ── Expected to Collect (hero card) ───────────────────────
                 Container(
                   width: double.infinity,
@@ -159,7 +153,7 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
                           letterSpacing: -1,
                         ),
                       ),
-                      if (lastStatus != null) ...[
+                      if (pending != null) ...[
                         const SizedBox(height: 10),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -167,9 +161,9 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
                             color: AppColors.textOnPrimary.withOpacity(0.15),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text(
-                            'Last: ${_statusLabel(lastStatus)}',
-                            style: const TextStyle(
+                          child: const Text(
+                            'Provisional — pending approval',
+                            style: TextStyle(
                               color: AppColors.textOnPrimary,
                               fontSize: 12.5,
                               fontWeight: FontWeight.w500,
@@ -197,6 +191,12 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
                           'On Loan (not yet collectable)',
                           'UGX ${summary['loan_amount']}',
                           AppColors.warning,
+                        ),
+                      if (leftBehind > 0)
+                        _distributionRow(
+                          'Left in Business (previous collection)',
+                          'UGX $leftBehind',
+                          AppColors.info,
                         ),
                       const Divider(height: 24, color: AppColors.borderOnLight),
                       _distributionRow(
@@ -413,6 +413,7 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: _amountController,
+                        enabled: pending == null,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
@@ -444,31 +445,16 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      CheckboxListTile(
-                        value: _leaveRemainder,
-                        onChanged: (v) => setState(() => _leaveRemainder = v ?? false),
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        title: const Text(
-                          'Leave remainder in business',
-                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500),
-                        ),
-                        subtitle: const Text(
-                          'If collecting less than expected, treat the rest as intentionally left as float — no shortfall approval needed.',
-                          style: TextStyle(fontSize: 12, color: AppColors.textSecondaryOnLight),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         height: 52,
                         child: ElevatedButton(
-                          onPressed: _submitting ? null : () => _submit(),
+                          onPressed: (_submitting || pending != null) ? null : () => _submit(),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
                             foregroundColor: AppColors.textOnPrimary,
-                            disabledBackgroundColor: AppColors.primary.withOpacity(0.45),
+                            disabledBackgroundColor: AppColors.primary.withOpacity(0.35),
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
@@ -483,9 +469,9 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
                               color: AppColors.textOnPrimary,
                             ),
                           )
-                              : const Text(
-                            'Record Collection',
-                            style: TextStyle(
+                              : Text(
+                            pending != null ? 'Awaiting Approval' : 'Record Collection',
+                            style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                             ),
@@ -584,20 +570,18 @@ class _CashCollectionScreenState extends ConsumerState<CashCollectionScreen> {
 
     setState(() => _submitting = true);
     try {
-      final result = await ref
+      await ref
           .read(cashCollectionRepositoryProvider)
-          .collect(double.parse(_amountController.text), _leaveRemainder, widget.module);
+          .collect(double.parse(_amountController.text), widget.module);
 
       ref.invalidate(collectionSummaryProvider(widget.module));
       _amountController.clear();
-      setState(() => _leaveRemainder = false);
 
       if (mounted) {
-        final status = result['status'] as String;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_statusLabel(status)),
-            backgroundColor: _statusColor(status),
+          const SnackBar(
+            content: Text('Collection recorded — pending approval'),
+            backgroundColor: AppColors.warning,
             behavior: SnackBarBehavior.floating,
           ),
         );

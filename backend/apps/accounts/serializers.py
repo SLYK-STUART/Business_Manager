@@ -19,10 +19,11 @@ class PhoneTokenObtainSerializer(TokenObtainPairSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     has_passcode = serializers.SerializerMethodField()
+    business_name = serializers.CharField(source="business.name", read_only=True, default=None)
 
     class Meta:
         model = User
-        fields = ["id", "name", "phone", "roles", "business", "is_active", "created_at", "has_passcode"]
+        fields = ["id", "name", "phone", "roles", "business", "business_name", "is_active", "created_at", "has_passcode"]
         read_only_fields = ["id", "created_at"]
 
     def get_has_passcode(self, obj):

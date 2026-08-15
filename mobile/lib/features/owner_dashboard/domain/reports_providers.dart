@@ -34,3 +34,28 @@ final trendsProvider = FutureProvider.autoDispose((ref) async {
   final range = ref.watch(selectedRangeProvider);
   return ref.watch(reportsRepositoryProvider).getTrends(range.start, range.end);
 });
+
+final categoryRevenueProvider = FutureProvider.autoDispose((ref) async {
+  final range = ref.watch(selectedRangeProvider);
+  return ref.watch(reportsRepositoryProvider).getCategoryRevenue(range.start, range.end);
+});
+
+final salesOverTimeProvider = FutureProvider.autoDispose((ref) async {
+  final range = ref.watch(selectedRangeProvider);
+  return ref.watch(reportsRepositoryProvider).getSalesOverTime(range.start, range.end);
+});
+
+final loansSummaryProvider = FutureProvider.autoDispose((ref) async {
+  final range = ref.watch(selectedRangeProvider);
+  return ref.watch(reportsRepositoryProvider).getLoansSummary(range.start, range.end);
+});
+
+final cashReconciliationProvider = FutureProvider.autoDispose((ref) async {
+  final range = ref.watch(selectedRangeProvider);
+  return ref.watch(reportsRepositoryProvider).getCashReconciliation(range.start, range.end);
+});
+
+final giveawaysSummaryProvider = FutureProvider.autoDispose((ref) async {
+  final range = ref.watch(selectedRangeProvider);
+  return ref.watch(reportsRepositoryProvider).getGiveawaysSummary(range.start, range.end);
+});

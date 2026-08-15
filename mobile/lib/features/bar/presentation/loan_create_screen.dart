@@ -14,19 +14,49 @@ class LoanCreateScreen extends ConsumerStatefulWidget {
 }
 
 class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
-  dynamic _selectedItem;
-  final _qtyController = TextEditingController(text: '1');
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _searchController = TextEditingController();
   bool _duplicateFlag = false;
   bool _submitting = false;
+  bool _searching = false;
+  String _query = '';
+
+  // Local cart for this screen: itemId → {item, quantity}
+  final Map<String, Map<String, dynamic>> _selected = {};
 
   @override
   void dispose() {
-    _qtyController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  int _stockOf(dynamic item) {
+    final raw = item['current_stock'];
+    if (raw is int) return raw;
+    return int.tryParse(raw?.toString() ?? '0') ?? 0;
+  }
+
+  int _qtyOf(String itemId) => _selected[itemId]?['quantity'] as int? ?? 0;
+
+  void _setQty(dynamic item, int qty) {
+    final id = item['id'].toString();
+    final stock = _stockOf(item);
+
+    if (qty <= 0) {
+      setState(() => _selected.remove(id));
+      return;
+    }
+
+    final clamped = qty.clamp(1, stock);
+    setState(() {
+      _selected[id] = {
+        'item': item,
+        'quantity': clamped,
+      };
+    });
   }
 
   Future<void> _checkPhone() async {
@@ -93,6 +123,9 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
   @override
   Widget build(BuildContext context) {
     final itemsAsync = ref.watch(itemListProvider);
+    final selectedCount = _selected.length;
+    final totalQty = _selected.values
+        .fold<int>(0, (sum, e) => sum + (e['quantity'] as int));
 
     return Scaffold(
       backgroundColor: AppColors.surfaceLight,
@@ -111,6 +144,23 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
           ),
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimaryOnLight),
+        actions: [
+          IconButton(
+            icon: Icon(
+              _searching ? Icons.close_rounded : Icons.search_rounded,
+              color: AppColors.textSecondaryOnLight,
+            ),
+            onPressed: () {
+              setState(() {
+                if (_searching) {
+                  _searchController.clear();
+                  _query = '';
+                }
+                _searching = !_searching;
+              });
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -121,11 +171,85 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── Item selector ───────────────────────────────────
+                    // ── Search bar (when active) ────────────────────────
+                    if (_searching) ...[
+                      TextField(
+                        controller: _searchController,
+                        autofocus: true,
+                        style: const TextStyle(
+                          color: AppColors.textPrimaryOnLight,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        decoration: _fieldDecoration(
+                          label: 'Search items',
+                          hint: 'Type item name...',
+                          prefixIcon: Icons.search_rounded,
+                        ),
+                        onChanged: (v) => setState(() => _query = v),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // ── Selected summary ────────────────────────────────
+                    if (selectedCount > 0) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.primary.withOpacity(0.25),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.shopping_bag_outlined,
+                                size: 18, color: AppColors.primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '$selectedCount item${selectedCount == 1 ? '' : 's'} · Qty $totalQty',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primary,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => setState(() => _selected.clear()),
+                              child: const Text(
+                                'Clear',
+                                style: TextStyle(
+                                  color: AppColors.error,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // ── Item list ───────────────────────────────────────
+                    const Text(
+                      'SELECT ITEMS',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondaryOnLight,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
                     itemsAsync.when(
                       loading: () => const Center(
                         child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
+                          padding: EdgeInsets.symmetric(vertical: 32),
                           child: CircularProgressIndicator(
                             color: AppColors.primary,
                           ),
@@ -145,48 +269,196 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
                           style: const TextStyle(color: AppColors.error),
                         ),
                       ),
-                      data: (items) => DropdownButtonFormField(
-                        value: _selectedItem,
-                        decoration: _fieldDecoration(
-                          label: 'Item',
-                          prefixIcon: Icons.inventory_2_outlined,
-                        ),
-                        dropdownColor: AppColors.surfaceLight,
-                        style: const TextStyle(
-                          color: AppColors.textPrimaryOnLight,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        items: items
-                            .map<DropdownMenuItem>(
-                              (i) => DropdownMenuItem(
-                            value: i,
-                            child: Text(i['name'] ?? 'Unnamed'),
-                          ),
-                        )
-                            .toList(),
-                        onChanged: (v) => setState(() => _selectedItem = v),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+                      data: (items) {
+                        final filtered = _query.isEmpty
+                            ? items
+                            : items
+                            .where((it) => (it['name'] ?? '')
+                            .toString()
+                            .toLowerCase()
+                            .contains(_query.toLowerCase()))
+                            .toList();
 
-                    // ── Quantity ────────────────────────────────────────
-                    TextField(
-                      controller: _qtyController,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
-                      style: const TextStyle(
-                        color: AppColors.textPrimaryOnLight,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      decoration: _fieldDecoration(
-                        label: 'Quantity',
-                        hint: '1',
-                        prefixIcon: Icons.numbers_rounded,
-                      ),
+                        if (filtered.isEmpty) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 32),
+                              child: Text(
+                                _query.isEmpty
+                                    ? 'No items available'
+                                    : 'No items match "$_query"',
+                                style: const TextStyle(
+                                  color: AppColors.textSecondaryOnLight,
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: filtered.length,
+                          separatorBuilder: (_, __) =>
+                          const SizedBox(height: 10),
+                          itemBuilder: (context, i) {
+                            final item = filtered[i];
+                            final id = item['id'].toString();
+                            final name = item['name']?.toString() ?? 'Unnamed';
+                            final stock = _stockOf(item);
+                            final qty = _qtyOf(id);
+                            final selected = qty > 0;
+                            final canIncrease = qty < stock;
+
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: selected
+                                      ? AppColors.primary.withOpacity(0.4)
+                                      : AppColors.borderOnLight,
+                                  width: selected ? 1.5 : 1,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.03),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  // Icon
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: selected
+                                          ? AppColors.primary.withOpacity(0.12)
+                                          : AppColors.surfaceMuted,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(
+                                      Icons.inventory_2_outlined,
+                                      size: 20,
+                                      color: selected
+                                          ? AppColors.primary
+                                          : AppColors.textSecondaryOnLight,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+
+                                  // Name + stock
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                            color: AppColors.textPrimaryOnLight,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Stock: $stock',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: stock == 0
+                                                ? AppColors.error
+                                                : AppColors.textSecondaryOnLight,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Quantity controls
+                                  if (stock > 0)
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surfaceMuted,
+                                        borderRadius: BorderRadius.circular(30),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 4),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            visualDensity:
+                                            VisualDensity.compact,
+                                            icon: const Icon(
+                                                Icons.remove_rounded,
+                                                size: 18),
+                                            color: qty > 0
+                                                ? AppColors.textPrimaryOnLight
+                                                : AppColors
+                                                .textSecondaryOnLight
+                                                .withOpacity(0.3),
+                                            onPressed: qty > 0
+                                                ? () =>
+                                                _setQty(item, qty - 1)
+                                                : null,
+                                          ),
+                                          SizedBox(
+                                            width: 24,
+                                            child: Text(
+                                              '$qty',
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 14,
+                                                color: AppColors
+                                                    .textPrimaryOnLight,
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            visualDensity:
+                                            VisualDensity.compact,
+                                            icon: const Icon(Icons.add_rounded,
+                                                size: 18),
+                                            color: canIncrease
+                                                ? AppColors.primary
+                                                : AppColors
+                                                .textSecondaryOnLight
+                                                .withOpacity(0.3),
+                                            onPressed: canIncrease
+                                                ? () =>
+                                                _setQty(item, qty + 1)
+                                                : null,
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  else
+                                    const Text(
+                                      'Out of stock',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.error,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
                     ),
-                    const SizedBox(height: 24),
+
+                    const SizedBox(height: 28),
 
                     // ── Customer section ────────────────────────────────
                     const Text(
@@ -291,7 +563,9 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
+                  onPressed: (_submitting || selectedCount == 0)
+                      ? null
+                      : _submit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: AppColors.textOnPrimary,
@@ -311,9 +585,11 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
                       color: AppColors.textOnPrimary,
                     ),
                   )
-                      : const Text(
-                    'Create Loan',
-                    style: TextStyle(
+                      : Text(
+                    selectedCount == 0
+                        ? 'Select items'
+                        : 'Create Loan · $totalQty item${totalQty == 1 ? '' : 's'}',
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.2,
@@ -329,7 +605,16 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
   }
 
   Future<void> _submit() async {
-    if (_selectedItem == null || _nameController.text.trim().isEmpty) return;
+    if (_selected.isEmpty || _nameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select at least one item and enter customer name'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     setState(() => _submitting = true);
     try {
@@ -338,14 +623,17 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
         _phoneController.text.trim(),
       );
 
-      await ref.read(saleRepositoryProvider).createSale([
-        {
-          'item_id': _selectedItem['id'],
-          'quantity': int.parse(_qtyController.text),
+      final lineItems = _selected.values.map((e) {
+        final item = e['item'];
+        return {
+          'item_id': item['id'],
+          'quantity': e['quantity'],
           'payment_status': 'loan',
           'customer_id': customer['id'],
-        }
-      ]);
+        };
+      }).toList();
+
+      await ref.read(saleRepositoryProvider).createSale(lineItems);
 
       if (mounted) {
         Navigator.pop(context);

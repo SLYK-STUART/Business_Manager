@@ -4,18 +4,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../domain/loan_providers.dart';
 
-class LoansScreen extends ConsumerWidget {
+class LoansScreen extends ConsumerStatefulWidget {
   const LoansScreen({super.key});
+
+  @override
+  ConsumerState<LoansScreen> createState() => _LoansScreenState();
+}
+
+class _LoansScreenState extends ConsumerState<LoansScreen> {
+  String _filter = 'open'; // open | settled
 
   Color _statusColor(String? status) {
     switch (status) {
       case 'paid':
       case 'written_off':
         return AppColors.success;
-      case 'overdue':
-        return AppColors.error;
-      case 'partial':
+      case 'partially_paid':
         return AppColors.warning;
+      case 'active':
       default:
         return AppColors.info;
     }
@@ -26,8 +32,13 @@ class LoansScreen extends ConsumerWidget {
     return status.replaceAll('_', ' ').toUpperCase();
   }
 
+  bool _isSettled(dynamic loan) {
+    final status = loan['status']?.toString();
+    return status == 'paid' || status == 'written_off';
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final loansAsync = ref.watch(loanListProvider);
 
     return Scaffold(
@@ -48,200 +59,267 @@ class LoansScreen extends ConsumerWidget {
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimaryOnLight),
       ),
-      body: loansAsync.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.primary),
-        ),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              'Failed to load loans:\n$e',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.error),
+      body: Column(
+        children: [
+          // ── Filter tabs ─────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  _FilterTab(
+                    label: 'Open',
+                    selected: _filter == 'open',
+                    onTap: () => setState(() => _filter = 'open'),
+                  ),
+                  _FilterTab(
+                    label: 'Settled',
+                    selected: _filter == 'settled',
+                    onTap: () => setState(() => _filter = 'settled'),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        data: (loans) {
-          if (loans.isEmpty) {
-            return const Center(
-              child: Text(
-                'No loans yet',
-                style: TextStyle(
-                  color: AppColors.textSecondaryOnLight,
-                  fontSize: 16,
+
+          // ── List ────────────────────────────────────────────────────────
+          Expanded(
+            child: loansAsync.when(
+              loading: () => const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              ),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    'Failed to load loans:\n$e',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.error),
+                  ),
                 ),
               ),
-            );
-          }
+              data: (loans) {
+                final filtered = loans.where((loan) {
+                  final settled = _isSettled(loan);
+                  return _filter == 'open' ? !settled : settled;
+                }).toList();
 
-          return RefreshIndicator(
-            color: AppColors.primary,
-            onRefresh: () async => ref.invalidate(loanListProvider),
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-              itemCount: loans.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, i) {
-                final loan = loans[i];
-                final status = loan['status']?.toString();
-                final isSettled =
-                    status == 'paid' || status == 'written_off';
-                final statusColor = _statusColor(status);
+                if (_filter == 'open') {
+                  filtered.sort((a, b) {
+                    final aActive = a['status'] == 'active' ? 0 : 1;
+                    final bActive = b['status'] == 'active' ? 0 : 1;
+                    return aActive.compareTo(bActive);
+                  });
+                }
 
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.borderOnLight),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
+                if (filtered.isEmpty) {
+                  return Center(
+                    child: Text(
+                      _filter == 'open'
+                          ? 'No open loans'
+                          : 'No settled loans yet',
+                      style: const TextStyle(
+                        color: AppColors.textSecondaryOnLight,
+                        fontSize: 15,
                       ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Top row: amount + status badge
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'UGX ${loan['amount_remaining']}',
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textPrimaryOnLight,
-                                letterSpacing: -0.4,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              _statusLabel(status),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: statusColor,
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'remaining',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondaryOnLight.withOpacity(0.8),
+                    ),
+                  );
+                }
+
+                return RefreshIndicator(
+                  color: AppColors.primary,
+                  onRefresh: ()  => ref.refresh(loanListProvider.future),
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, i) {
+                      final loan = filtered[i];
+                      final status = loan['status']?.toString();
+                      final isSettled = _isSettled(loan);
+                      final statusColor = _statusColor(status);
+
+                      final customerName =
+                          loan['customer_name']?.toString().trim() ?? '—';
+                      final customerPhone =
+                      loan['customer_phone']?.toString().trim();
+                      final itemName =
+                          loan['item_name']?.toString().trim() ?? 'Unknown item';
+                      final quantity = loan['quantity'];
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
                         ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Due date
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.calendar_today_outlined,
-                            size: 14,
-                            color: AppColors.textSecondaryOnLight,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Due ${loan['due_date'] ?? '—'}',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textSecondaryOnLight,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      // Customer name if available
-                      if (loan['customer_name'] != null) ...[
-                        const SizedBox(height: 6),
-                        Row(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.borderOnLight),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            const Icon(
-                              Icons.person_outline_rounded,
-                              size: 14,
-                              color: AppColors.textSecondaryOnLight,
+                            // Left content
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Amount + status
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          'UGX ${loan['amount_remaining']}',
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.textPrimaryOnLight,
+                                            letterSpacing: -0.2,
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 7,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withOpacity(0.12),
+                                          borderRadius: BorderRadius.circular(5),
+                                        ),
+                                        child: Text(
+                                          _statusLabel(status),
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: statusColor,
+                                            letterSpacing: 0.2,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+                                  const SizedBox(height: 5),
+
+                                  // Item + qty
+                                  Text(
+                                    quantity != null
+                                        ? '$itemName  ·  Qty $quantity'
+                                        : itemName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: AppColors.textPrimaryOnLight,
+                                    ),
+                                  ),
+
+                                  const SizedBox(height: 3),
+
+                                  // Customer + phone + due
+                                  Text(
+                                    [
+                                      customerName,
+                                      if (customerPhone != null &&
+                                          customerPhone.isNotEmpty)
+                                        customerPhone,
+                                      'Due ${loan['due_date'] ?? '—'}',
+                                    ].join('  ·  '),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      color: AppColors.textSecondaryOnLight,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              loan['customer_name'].toString(),
+
+                            // Repay button
+                            // Actions
+                            const SizedBox(width: 12),
+                            isSettled
+                                ? Text(
+                              status == 'paid' ? 'Settled' : 'Written off',
                               style: const TextStyle(
-                                fontSize: 13,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
                                 color: AppColors.textSecondaryOnLight,
+                              ),
+                            )
+                                : PopupMenuButton<String>(
+                              onSelected: (action) {
+                                if (action == 'repay') {
+                                  _showRepaySheet(context, ref, loan);
+                                } else if (action == 'write_off') {
+                                  _confirmWriteOff(context, ref, loan);
+                                } else if (action == 'reschedule') {
+                                  _showRescheduleSheet(context, ref, loan);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'repay',
+                                  child: Text('Repay'),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'reschedule',
+                                  child: Text('Reschedule Due Date'),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'write_off',
+                                  child: Text(
+                                    'Write Off',
+                                    style: TextStyle(color: Colors.red),
+                                  ),
+                                ),
+                              ],
+                              padding: EdgeInsets.zero,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 7,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.more_horiz,
+                                  size: 16,
+                                  color: AppColors.textOnPrimary,
+                                ),
                               ),
                             ),
                           ],
                         ),
-                      ],
-
-                      // Action
-                      if (!isSettled) ...[
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 42,
-                          child: ElevatedButton(
-                            onPressed: () =>
-                                _showRepaySheet(context, ref, loan),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: AppColors.textOnPrimary,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: const Text(
-                              'Repay',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ] else ...[
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Settled',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondaryOnLight,
-                          ),
-                        ),
-                      ],
-                    ],
+                      );
+                    },
                   ),
                 );
               },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
 
   void _showRepaySheet(BuildContext context, WidgetRef ref, dynamic loan) {
     final controller = TextEditingController();
+    final customerName = loan['customer_name']?.toString();
+    final customerPhone = loan['customer_phone']?.toString();
+    final itemName = loan['item_name']?.toString();
+    final quantity = loan['quantity'];
 
     showModalBottomSheet(
       context: context,
@@ -262,7 +340,6 @@ class LoansScreen extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Handle
                 Center(
                   child: Container(
                     width: 40,
@@ -274,7 +351,6 @@ class LoansScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-
                 const Text(
                   'Repay Loan',
                   style: TextStyle(
@@ -284,16 +360,41 @@ class LoansScreen extends ConsumerWidget {
                     letterSpacing: -0.4,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
+
+                // Context info
+                if (itemName != null)
+                  Text(
+                    quantity != null ? '$itemName · Qty $quantity' : itemName,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimaryOnLight,
+                    ),
+                  ),
+                if (customerName != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    [
+                      customerName,
+                      if (customerPhone != null) customerPhone,
+                    ].join('  ·  '),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondaryOnLight,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 4),
                 Text(
                   'Remaining: UGX ${loan['amount_remaining']}',
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: AppColors.textSecondaryOnLight,
                   ),
                 ),
-                const SizedBox(height: 20),
 
+                const SizedBox(height: 20),
                 TextField(
                   controller: controller,
                   keyboardType:
@@ -339,7 +440,6 @@ class LoansScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-
                 SizedBox(
                   width: double.infinity,
                   height: 52,
@@ -376,6 +476,121 @@ class LoansScreen extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+  void _confirmWriteOff(BuildContext context, WidgetRef ref, dynamic loan) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Write Off Loan'),
+        content: Text(
+          "Mark UGX ${loan['amount_remaining']} as a loss? This can't be undone and will reduce actual profit for this period.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await ref.read(loanRepositoryProvider).writeOffLoan(loan['id']);
+              ref.invalidate(loanListProvider);
+            },
+            child: const Text('Write Off', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRescheduleSheet(BuildContext context, WidgetRef ref, dynamic loan) {
+    DateTime newDate = DateTime.now().add(const Duration(days: 7));
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Reschedule Due Date',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                title: Text(
+                  'New due date: ${newDate.toIso8601String().substring(0, 10)}',
+                ),
+                trailing: const Icon(Icons.calendar_today, size: 18),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: newDate,
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) setSheetState(() => newDate = picked);
+                },
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () async {
+                  await ref.read(loanRepositoryProvider).rescheduleLoan(
+                    loan['id'],
+                    newDate.toIso8601String().substring(0, 10),
+                  );
+                  ref.invalidate(loanListProvider);
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterTab extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: selected
+                    ? AppColors.textOnPrimary
+                    : AppColors.textSecondaryOnLight,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

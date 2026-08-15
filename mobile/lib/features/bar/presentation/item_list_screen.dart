@@ -14,6 +14,12 @@ class ItemListScreen extends ConsumerStatefulWidget {
 class _ItemListScreenState extends ConsumerState<ItemListScreen> {
   String? _selectedCategoryId;
 
+  bool _isLowStock(dynamic item) {
+    final stock = (item['current_stock'] as num?) ?? 0;
+    final threshold = (item['low_stock_threshold'] as num?) ?? 0;
+    return stock <= threshold;
+  }
+
   @override
   Widget build(BuildContext context) {
     final itemsAsync = ref.watch(itemListProvider);
@@ -39,16 +45,15 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
       ),
       body: Column(
         children: [
-          // ── Category chips ──────────────────────────────────────────────
+          // ── Category chips ──────────────────────────────────────────
           categoriesAsync.when(
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
             data: (categories) {
               if (categories.isEmpty) return const SizedBox.shrink();
 
-              return Container(
-                height: 52,
-                margin: const EdgeInsets.only(bottom: 4),
+              return SizedBox(
+                height: 44,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -56,21 +61,26 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
                     _CategoryChip(
                       label: 'All',
                       selected: _selectedCategoryId == null,
-                      onSelected: () => setState(() => _selectedCategoryId = null),
-                    ),
-                    ...categories.map((c) => _CategoryChip(
-                      label: c['name'] ?? '',
-                      selected: _selectedCategoryId == c['id'],
                       onSelected: () =>
-                          setState(() => _selectedCategoryId = c['id']),
-                    )),
+                          setState(() => _selectedCategoryId = null),
+                    ),
+                    ...categories.map(
+                          (c) => _CategoryChip(
+                        label: c['name'] ?? '',
+                        selected: _selectedCategoryId == c['id'],
+                        onSelected: () => setState(
+                              () => _selectedCategoryId = c['id'],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               );
             },
           ),
+          const SizedBox(height: 8),
 
-          // ── List ────────────────────────────────────────────────────────
+          // ── Grid ────────────────────────────────────────────────────
           Expanded(
             child: itemsAsync.when(
               loading: () => const Center(
@@ -87,11 +97,22 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
                 ),
               ),
               data: (items) {
-                final filtered = _selectedCategoryId == null
-                    ? items
+                var filtered = _selectedCategoryId == null
+                    ? List<dynamic>.from(items)
                     : items
                     .where((i) => i['category'] == _selectedCategoryId)
                     .toList();
+
+                // Low stock first, then by name
+                filtered.sort((a, b) {
+                  final aLow = _isLowStock(a);
+                  final bLow = _isLowStock(b);
+                  if (aLow && !bLow) return -1;
+                  if (!aLow && bLow) return 1;
+                  final aName = (a['name'] ?? '').toString().toLowerCase();
+                  final bName = (b['name'] ?? '').toString().toLowerCase();
+                  return aName.compareTo(bName);
+                });
 
                 if (filtered.isEmpty) {
                   return const Center(
@@ -99,7 +120,7 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
                       'No items found',
                       style: TextStyle(
                         color: AppColors.textSecondaryOnLight,
-                        fontSize: 16,
+                        fontSize: 15,
                       ),
                     ),
                   );
@@ -108,143 +129,27 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
                 return RefreshIndicator(
                   color: AppColors.primary,
                   onRefresh: () async => ref.invalidate(itemListProvider),
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  child: GridView.builder(
+                    // Clearance for bottom nav
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                    gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 0.82,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
                     itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final item = filtered[index];
-                      final lowStock = (item['current_stock'] as num) <=
-                          (item['low_stock_threshold'] as num);
-                      final photoUrl = item['photo_url'];
-                      final hasPhoto =
-                          photoUrl != null && photoUrl.toString().isNotEmpty;
-
                       return GestureDetector(
                         onTap: () => Navigator.of(context).pushNamed(
                           '/item_detail',
                           arguments: item['id'],
                         ),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: lowStock
-                                  ? AppColors.error.withOpacity(0.35)
-                                  : AppColors.borderOnLight,
-                              width: lowStock ? 1.3 : 1,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.03),
-                                blurRadius: 10,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              // Thumbnail
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: SizedBox(
-                                  width: 64,
-                                  height: 64,
-                                  child: hasPhoto
-                                      ? Image.network(
-                                    photoUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) =>
-                                        _placeholder(),
-                                  )
-                                      : _placeholder(),
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-
-                              // Info
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      item['name'] ?? 'Unnamed',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.textPrimaryOnLight,
-                                        letterSpacing: -0.2,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          Icons.inventory_2_outlined,
-                                          size: 14,
-                                          color: lowStock
-                                              ? AppColors.error
-                                              : AppColors.textSecondaryOnLight,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'Stock: ${item['current_stock']}',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w500,
-                                            color: lowStock
-                                                ? AppColors.error
-                                                : AppColors.textSecondaryOnLight,
-                                          ),
-                                        ),
-                                        if (lowStock) ...[
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.error
-                                                  .withOpacity(0.12),
-                                              borderRadius:
-                                              BorderRadius.circular(6),
-                                            ),
-                                            child: const Text(
-                                              'LOW',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w700,
-                                                color: AppColors.error,
-                                                letterSpacing: 0.3,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              // Price
-                              Text(
-                                'UGX ${item['selling_price']}',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: lowStock
-                                      ? AppColors.error
-                                      : AppColors.textPrimaryOnLight,
-                                  letterSpacing: -0.3,
-                                ),
-                              ),
-                            ],
-                          ),
+                        child: _ItemGridCard(
+                          item: item,
+                          isLowStock: _isLowStock(item),
                         ),
                       );
                     },
@@ -257,22 +162,117 @@ class _ItemListScreenState extends ConsumerState<ItemListScreen> {
       ),
     );
   }
+}
 
-  Widget _placeholder() {
-    return Container(
-      color: AppColors.surfaceMuted,
-      child: const Center(
-        child: Icon(
-          Icons.inventory_2_outlined,
-          size: 28,
-          color: AppColors.textHint,
+// ── Grid card (same visual language as Sell screen) ───────────────────
+
+class _ItemGridCard extends StatelessWidget {
+  final dynamic item;
+  final bool isLowStock;
+
+  const _ItemGridCard({
+    required this.item,
+    required this.isLowStock,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final stock = item['current_stock'] ?? 0;
+    final hasPhoto =
+        item['photo_url'] != null && item['photo_url'].toString().isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceMuted,
+                    borderRadius: BorderRadius.circular(14),
+                    border: isLowStock
+                        ? Border.all(
+                      color: AppColors.error.withOpacity(0.45),
+                      width: 1.5,
+                    )
+                        : null,
+                    image: hasPhoto
+                        ? DecorationImage(
+                      image: NetworkImage(item['photo_url']),
+                      fit: BoxFit.cover,
+                    )
+                        : null,
+                  ),
+                  child: !hasPhoto
+                      ? const Center(
+                    child: Icon(
+                      Icons.inventory_2_outlined,
+                      color: AppColors.textSecondaryOnLight,
+                      size: 32,
+                    ),
+                  )
+                      : null,
+                ),
+              ),
+
+              // Stock badge
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isLowStock
+                        ? AppColors.error
+                        : AppColors.stockBadge,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '$stock left',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isLowStock
+                          ? Colors.white
+                          : AppColors.stockBadgeText,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+        Text(
+          item['name'] ?? 'Unnamed',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: isLowStock
+                ? AppColors.error
+                : AppColors.textPrimaryOnLight,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'UGX ${item['selling_price']}',
+          style: TextStyle(
+            fontSize: 12,
+            color: isLowStock
+                ? AppColors.error.withOpacity(0.8)
+                : AppColors.textSecondaryOnLight,
+          ),
+        ),
+      ],
     );
   }
 }
 
-// ── Styled category chip ────────────────────────────────────────────────────
 class _CategoryChip extends StatelessWidget {
   final String label;
   final bool selected;
@@ -299,7 +299,7 @@ class _CategoryChip extends StatelessWidget {
               ? AppColors.textOnPrimary
               : AppColors.textSecondaryOnLight,
           fontWeight: FontWeight.w600,
-          fontSize: 13,
+          fontSize: 12.5,
         ),
         side: BorderSide(
           color: selected ? AppColors.primary : AppColors.borderOnLight,
@@ -308,7 +308,8 @@ class _CategoryChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
         ),
         showCheckmark: false,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
       ),
     );
   }

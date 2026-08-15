@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../domain/item_providers.dart';
 
@@ -19,6 +22,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
   final _priceController = TextEditingController();
   final _thresholdController = TextEditingController();
   bool _saving = false;
+  bool _uploadingPhoto = false;
 
   @override
   void initState() {
@@ -128,7 +132,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
               // ── Content ─────────────────────────────────────────────────
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -141,12 +145,12 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                               width: double.infinity,
                               decoration: BoxDecoration(
                                 color: AppColors.surfaceMuted,
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(18),
                                 border: Border.all(color: AppColors.borderOnLight),
                               ),
                               child: hasPhoto
                                   ? ClipRRect(
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(18),
                                 child: Image.network(
                                   photoUrl,
                                   fit: BoxFit.cover,
@@ -157,25 +161,23 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                   : _photoPlaceholder(),
                             ),
                             Positioned(
-                              bottom: 14,
-                              right: 14,
+                              bottom: 10,
+                              right: 10,
                               child: GestureDetector(
-                                onTap: () {
-                                  // Optional: hook up image picker later
-                                },
+                                onTap: () => _showPhotoSourceSheet(item['id']),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
+                                    horizontal: 10,
+                                    vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
                                     color: AppColors.primary,
-                                    borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(9),
                                     boxShadow: [
                                       BoxShadow(
                                         color: AppColors.primary.withOpacity(0.35),
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 3),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
                                       ),
                                     ],
                                   ),
@@ -183,14 +185,14 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Icon(Icons.camera_alt_outlined,
-                                          size: 16, color: AppColors.textOnPrimary),
-                                      SizedBox(width: 6),
+                                          size: 14, color: AppColors.textOnPrimary),
+                                      SizedBox(width: 5),
                                       Text(
                                         'Edit photo',
                                         style: TextStyle(
                                           color: AppColors.textOnPrimary,
                                           fontWeight: FontWeight.w600,
-                                          fontSize: 13,
+                                          fontSize: 11.5,
                                         ),
                                       ),
                                     ],
@@ -198,10 +200,24 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                 ),
                               ),
                             ),
+                            if (_uploadingPhoto)
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.35),
+                                    borderRadius: BorderRadius.circular(18),
+                                  ),
+                                  child: const Center(
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
                       if (!_editing) ...[
                         // ── Name + Category ───────────────────────────────
@@ -212,29 +228,29 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                               child: Text(
                                 item['name'] ?? 'Unnamed',
                                 style: const TextStyle(
-                                  fontSize: 24,
+                                  fontSize: 19,
                                   fontWeight: FontWeight.w800,
                                   color: AppColors.textPrimaryOnLight,
-                                  letterSpacing: -0.6,
-                                  height: 1.2,
+                                  letterSpacing: -0.5,
+                                  height: 1.15,
                                 ),
                               ),
                             ),
                             if (item['category'] != null)
                               Container(
-                                margin: const EdgeInsets.only(left: 12, top: 4),
+                                margin: const EdgeInsets.only(left: 10, top: 2),
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
+                                  horizontal: 9,
+                                  vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
                                   color: AppColors.surfaceMuted,
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(7),
                                 ),
                                 child: Text(
                                   item['category'].toString(),
                                   style: const TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                     color: AppColors.textSecondaryOnLight,
                                   ),
@@ -242,7 +258,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                               ),
                           ],
                         ),
-                        const SizedBox(height: 22),
+                        const SizedBox(height: 14),
 
                         // ── Stock + Price ─────────────────────────────────
                         Row(
@@ -254,13 +270,13 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                   const Text(
                                     'STOCK',
                                     style: TextStyle(
-                                      fontSize: 11,
+                                      fontSize: 10,
                                       fontWeight: FontWeight.w600,
                                       color: AppColors.textSecondaryOnLight,
-                                      letterSpacing: 0.6,
+                                      letterSpacing: 0.5,
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: 3),
                                   Row(
                                     crossAxisAlignment: CrossAxisAlignment.baseline,
                                     textBaseline: TextBaseline.alphabetic,
@@ -268,19 +284,19 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                       Text(
                                         '${item['current_stock']}',
                                         style: TextStyle(
-                                          fontSize: 28,
+                                          fontSize: 21,
                                           fontWeight: FontWeight.w800,
                                           color: lowStock
                                               ? AppColors.error
                                               : AppColors.textPrimaryOnLight,
-                                          letterSpacing: -0.8,
+                                          letterSpacing: -0.6,
                                         ),
                                       ),
-                                      const SizedBox(width: 6),
+                                      const SizedBox(width: 5),
                                       Text(
                                         'units',
                                         style: TextStyle(
-                                          fontSize: 14,
+                                          fontSize: 12.5,
                                           color: lowStock
                                               ? AppColors.error
                                               : AppColors.textSecondaryOnLight,
@@ -293,32 +309,32 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                             ),
                             Container(
                               width: 1,
-                              height: 40,
+                              height: 32,
                               color: AppColors.borderOnLight,
                             ),
                             Expanded(
                               child: Padding(
-                                padding: const EdgeInsets.only(left: 20),
+                                padding: const EdgeInsets.only(left: 16),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
                                       'SELLING PRICE',
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 10,
                                         fontWeight: FontWeight.w600,
                                         color: AppColors.textSecondaryOnLight,
-                                        letterSpacing: 0.6,
+                                        letterSpacing: 0.5,
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
+                                    const SizedBox(height: 3),
                                     Text(
                                       'UGX ${item['selling_price']}',
                                       style: const TextStyle(
-                                        fontSize: 28,
+                                        fontSize: 21,
                                         fontWeight: FontWeight.w800,
                                         color: AppColors.textPrimaryOnLight,
-                                        letterSpacing: -0.8,
+                                        letterSpacing: -0.6,
                                       ),
                                     ),
                                   ],
@@ -327,14 +343,14 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 18),
 
                         // ── Action buttons ────────────────────────────────
                         Row(
                           children: [
                             Expanded(
                               child: SizedBox(
-                                height: 52,
+                                height: 46,
                                 child: ElevatedButton(
                                   onPressed: () =>
                                       Navigator.of(context).pushNamed('/restock'),
@@ -343,23 +359,23 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                     foregroundColor: AppColors.textOnPrimary,
                                     elevation: 0,
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
                                   ),
                                   child: const Text(
                                     'Restock',
                                     style: TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 14.5,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: SizedBox(
-                                height: 52,
+                                height: 46,
                                 child: OutlinedButton(
                                   onPressed: () =>
                                       Navigator.of(context).pushNamed('/sell'),
@@ -370,13 +386,13 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                       width: 1.5,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
                                   ),
                                   child: const Text(
                                     'Sell',
                                     style: TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 14.5,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
@@ -395,7 +411,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                           ),
                           decoration: _fieldDecoration('Name'),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 12),
                         TextField(
                           controller: _priceController,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -408,7 +424,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                           ),
                           decoration: _fieldDecoration('Selling price'),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 12),
                         TextField(
                           controller: _thresholdController,
                           keyboardType: TextInputType.number,
@@ -419,10 +435,10 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                           ),
                           decoration: _fieldDecoration('Low stock threshold'),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 18),
                         SizedBox(
                           width: double.infinity,
-                          height: 52,
+                          height: 48,
                           child: ElevatedButton(
                             onPressed: _saving ? null : () => _save(item['id']),
                             style: ElevatedButton.styleFrom(
@@ -432,13 +448,13 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                               AppColors.primary.withOpacity(0.45),
                               elevation: 0,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                             child: _saving
                                 ? const SizedBox(
-                              width: 22,
-                              height: 22,
+                              width: 20,
+                              height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.4,
                                 color: AppColors.textOnPrimary,
@@ -447,7 +463,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                                 : const Text(
                               'Save Changes',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 14.5,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -455,11 +471,11 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                         ),
                       ],
 
-                      const SizedBox(height: 36),
+                      const SizedBox(height: 22),
 
                       // ── Restock History ─────────────────────────────────
                       _sectionTitle('RESTOCK HISTORY'),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       if (restocks.isEmpty)
                         _emptyState('No restocks yet')
                       else
@@ -471,11 +487,11 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                           trailing: _formatDate(r['timestamp']),
                         )),
 
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 18),
 
                       // ── Recent Sales ────────────────────────────────────
                       _sectionTitle('RECENT SALES'),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       if (sales.isEmpty)
                         _emptyState('No recent sales')
                       else
@@ -489,9 +505,9 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
 
                       // ── Price History (optional) ────────────────────────
                       if (priceHistory != null && priceHistory.isNotEmpty) ...[
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 18),
                         _sectionTitle('PRICE CHANGE HISTORY'),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
                         ...priceHistory.map((p) => _historyTile(
                           icon: Icons.swap_horiz_rounded,
                           iconColor: AppColors.info,
@@ -512,13 +528,98 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     );
   }
 
+  // ── Photo upload ─────────────────────────────────────────────────────────
+
+  void _showPhotoSourceSheet(String itemId) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 50),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderOnLight,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Update Photo',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimaryOnLight,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.photo_camera_outlined, color: AppColors.primary),
+                title: const Text('Take Photo'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickAndUploadPhoto(itemId, ImageSource.camera);
+                },
+              ),
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.photo_library_outlined, color: AppColors.primary),
+                title: const Text('Choose from Gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickAndUploadPhoto(itemId, ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndUploadPhoto(String itemId, ImageSource source) async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: source, imageQuality: 80);
+    if (picked == null) return;
+
+    setState(() => _uploadingPhoto = true);
+    try {
+      await ref.read(itemRepositoryProvider).updateItemPhoto(itemId, picked.path);
+      setState(() => _load());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update photo: $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingPhoto = false);
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   Widget _photoPlaceholder() {
     return const Center(
       child: Icon(
         Icons.inventory_2_outlined,
-        size: 56,
+        size: 44,
         color: AppColors.textHint,
       ),
     );
@@ -529,20 +630,20 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
       children: [
         Container(
           width: 3,
-          height: 14,
+          height: 12,
           decoration: BoxDecoration(
             color: AppColors.primary,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 7),
         Text(
           text,
           style: const TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.w700,
             color: AppColors.textSecondaryOnLight,
-            letterSpacing: 0.8,
+            letterSpacing: 0.6,
           ),
         ),
       ],
@@ -557,25 +658,25 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
     required String trailing,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.borderOnLight),
       ),
       child: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               color: iconColor.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(icon, size: 18, color: iconColor),
+            child: Icon(icon, size: 15, color: iconColor),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -584,15 +685,15 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
                   title,
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 14.5,
+                    fontSize: 13,
                     color: AppColors.textPrimaryOnLight,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   subtitle,
                   style: const TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 11.5,
                     color: AppColors.textSecondaryOnLight,
                   ),
                 ),
@@ -602,7 +703,7 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
           Text(
             trailing,
             style: const TextStyle(
-              fontSize: 12.5,
+              fontSize: 11.5,
               fontWeight: FontWeight.w500,
               color: AppColors.textSecondaryOnLight,
             ),
@@ -614,12 +715,12 @@ class _ItemDetailScreenState extends ConsumerState<ItemDetailScreen> {
 
   Widget _emptyState(String text) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Text(
         text,
         style: TextStyle(
           color: AppColors.textSecondaryOnLight.withOpacity(0.7),
-          fontSize: 14,
+          fontSize: 13,
         ),
       ),
     );

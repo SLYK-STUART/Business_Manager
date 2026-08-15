@@ -4,7 +4,10 @@ class GiveawayRepository {
   final ApiClient client;
   GiveawayRepository(this.client);
 
-  Future<void> createGiveaway(String itemId, String recipientName) async {
-    await client.dio.post("/bar/giveaways/", data: {"item": itemId, "recipient_name": recipientName});
+  Future<void> createGiveawayBatch(String recipientName, List<Map<String, dynamic>> lineItems) async {
+    await client.dio.post("/bar/giveaways/", data: {
+      "recipient_name": recipientName,
+      "line_items": lineItems,
+    });
   }
 }

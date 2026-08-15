@@ -27,4 +27,12 @@ class LoanRepository {
   Future<void> repayLoan(String loanId, double amount) async {
     await client.dio.post("/bar/loans/$loanId/repay/", data: {"amount": amount});
   }
+
+  Future<void> writeOffLoan(String loanId) async {
+    await client.dio.post("/bar/loans/$loanId/manage/", data: {"action": "write_off"});
+  }
+
+  Future<void> rescheduleLoan(String loanId, String newDueDate) async {
+    await client.dio.post("/bar/loans/$loanId/manage/", data: {"action": "reschedule", "new_due_date": newDueDate});
+  }
 }

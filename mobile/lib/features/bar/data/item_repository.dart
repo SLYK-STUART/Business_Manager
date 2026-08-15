@@ -48,11 +48,31 @@ class ItemRepository {
     return response.data;
   }
 
-  Future<void> updateItem(String itemId, {required String name, required double sellingPrice, required int lowStockThreshold}) async {
-    await client.dio.patch("/bar/items/$itemId/", data: {
-      "name": name,
-      "selling_price": sellingPrice,
-      "low_stock_threshold": lowStockThreshold,
+  Future<void> updateItemPhoto(String itemId, String photoPath) async {
+    final formData = FormData.fromMap({
+      "photo": await MultipartFile.fromFile(photoPath),
     });
+    await client.dio.patch("/bar/items/$itemId/", data: formData);
+  }
+
+  Future<void> updateItem(
+      String itemId, {
+        String? name,
+        double? sellingPrice,
+        int? lowStockThreshold,
+        String? categoryId,
+        bool clearCategory = false,
+      }) async {
+    final data = <String, dynamic>{};
+    if (name != null) data['name'] = name;
+    if (sellingPrice != null) data['selling_price'] = sellingPrice;
+    if (lowStockThreshold != null) data['low_stock_threshold'] = lowStockThreshold;
+    if (clearCategory) {
+      data['category'] = null;
+    } else if (categoryId != null) {
+      data['category'] = categoryId;
+    }
+
+    await client.dio.patch("/bar/items/$itemId/", data: data);
   }
 }

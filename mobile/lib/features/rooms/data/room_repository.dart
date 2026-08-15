@@ -9,8 +9,24 @@ class RoomRepository {
     return response.data as List<dynamic>;
   }
 
-  Future<void> createRoom(String name, double nightlyRate) async {
-    await client.dio.post("/rooms/rooms/", data: {"name": name, "nightly_rate": nightlyRate});
+  Future<void> createRoom(String name, String roomType, double nightlyRate) async {
+    await client.dio.post("/rooms/rooms/", data: {
+      "name": name,
+      "room_type": roomType,
+      "nightly_rate": nightlyRate,
+    });
+  }
+
+  Future<void> updateRoom(String roomId, {required String name, required String roomType, required double nightlyRate}) async {
+    await client.dio.patch("/rooms/rooms/$roomId/", data: {
+      "name": name,
+      "room_type": roomType,
+      "nightly_rate": nightlyRate,
+    });
+  }
+
+  Future<void> deactivateRoom(String roomId) async {
+    await client.dio.delete("/rooms/rooms/$roomId/");
   }
 
   Future<Map<String, dynamic>> checkin(String roomId, int nights, double discountAmount) async {
@@ -30,4 +46,6 @@ class RoomRepository {
     final response = await client.dio.get("/rooms/bookings/");
     return response.data as List<dynamic>;
   }
+
+
 }

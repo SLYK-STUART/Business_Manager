@@ -31,6 +31,13 @@ class StaffListCreateView(generics.ListCreateAPIView):
         staff = serializer.save()
         return Response(UserSerializer(staff).data, status=status.HTTP_201_CREATED)
 
+class StaffDetailView(generics.RetrieveUpdateAPIView):
+    permission_classes = [IsOwner]
+    serializer_class = UserSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        return User.objects.filter(business=self.request.user.business)
 class RegisterFcmTokenView(APIView):
     permission_classes = [IsAuthenticated]
 

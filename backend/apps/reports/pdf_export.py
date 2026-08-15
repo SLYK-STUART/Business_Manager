@@ -54,4 +54,6 @@ def generate_profit_pdf(business, start_date, end_date):
     p.showPage()
     p.save()
     buffer.seek(0)
-    return ContentFile(buffer.read(), name=f"profit_report_{start_date}_{end_date}.pdf")
+    start_str = start_date.strftime("%Y-%m-%d")
+    end_str = end_date.strftime("%Y-%m-%d")
+    return ContentFile(buffer.read(), name=f"profit_report_{start_str}_{end_str}.pdf")

@@ -2,7 +2,7 @@ import uuid
 from django.db import models
 from apps.platform_app.models import Business
 from apps.accounts.models import User
-
+from django.utils import timezone
 
 class ItemCategory(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -105,6 +105,7 @@ class Loan(models.Model):
     principal_amount = models.DecimalField(max_digits=12, decimal_places=2)
     amount_remaining = models.DecimalField(max_digits=12, decimal_places=2)
     due_date = models.DateField()
+    written_off_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -121,6 +122,7 @@ class LoanRepayment(models.Model):
 class FreeGiveaway(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     item = models.ForeignKey(Item, on_delete=models.PROTECT)
+    quantity = models.IntegerField(default=1)
     recipient_name = models.CharField(max_length=255)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     approval_request = models.ForeignKey("approvals.ApprovalRequest", on_delete=models.SET_NULL, null=True, blank=True)
@@ -132,6 +134,10 @@ class NonBusinessTransaction(models.Model):
         IN = "in", "In"
         OUT = "out", "Out"
 
+    class Type(models.TextChoices):
+        GENERAL = "general", "General"
+        SALARY = "salary", "Salary"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey(Business, on_delete=models.CASCADE)
     direction = models.CharField(max_length=10, choices=Direction.choices)
@@ -140,6 +146,9 @@ class NonBusinessTransaction(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     approval_request = models.ForeignKey("approvals.ApprovalRequest", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    type = models.CharField(max_length=20, choices=Type.choices, default=Type.GENERAL)
+
 
 
 class CollectionPeriod(models.Model):
@@ -152,6 +161,8 @@ class CollectionPeriod(models.Model):
     business = models.ForeignKey(Business, on_delete=models.CASCADE)
     period_start = models.DateTimeField(auto_now_add=True)
     period_end = models.DateTimeField(null=True, blank=True)
+    last_collection_at = models.DateTimeField(null=True, blank=True)
+    carried_forward_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     opening_expected_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     closing_expected_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
@@ -159,29 +170,28 @@ class CollectionPeriod(models.Model):
 
 class CashCollection(models.Model):
     class Status(models.TextChoices):
-        MATCHED = "matched", "Matched"
-        PARTIAL_LEFT_IN_BUSINESS = "partial_left_in_business", "Partial — left in business"
-        SHORTFALL_PENDING = "shortfall_pending", "Shortfall pending"
-        SHORTFALL_APPROVED = "shortfall_approved", "Shortfall approved"
-        OVERAGE_PENDING = "overage_pending", "Overage pending"
-        OVERAGE_APPROVED = "overage_approved", "Overage approved"
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     collection_period = models.ForeignKey(CollectionPeriod, on_delete=models.CASCADE, related_name="collections")
     expected_amount = models.DecimalField(max_digits=12, decimal_places=2)
     collected_amount = models.DecimalField(max_digits=12, decimal_places=2)
     variance = models.DecimalField(max_digits=12, decimal_places=2)
-    status = models.CharField(max_length=25, choices=Status.choices, default=Status.MATCHED)
+    previous_expected_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.PENDING)
     collected_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     approval_request = models.ForeignKey("approvals.ApprovalRequest", on_delete=models.SET_NULL, null=True, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True)
 
-
+def today_date():
+    return timezone.now().date()
 class Salary(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     staff = models.ForeignKey(User, on_delete=models.CASCADE, related_name="salaries")
     amount = models.DecimalField(max_digits=12, decimal_places=2)
-    effective_date = models.DateField()
+    effective_date = models.DateField(default=today_date)
     set_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="salaries_set")
 
 class SalaryPayment(models.Model):
