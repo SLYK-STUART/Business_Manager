@@ -163,6 +163,7 @@ class SaleCreateSerializer(serializers.Serializer):
                 total += line_total
                 discount_total += line["discount_amount"]
 
+                # Create loan only for LOAN or PARTIAL payments
                 if line["payment_status"] in (SaleLineItem.PaymentStatus.LOAN, SaleLineItem.PaymentStatus.PARTIAL):
                     Loan.objects.create(
                         customer_id=line["customer_id"],
@@ -177,13 +178,14 @@ class SaleCreateSerializer(serializers.Serializer):
             sale.discount_total = discount_total
             sale.save()
 
-            from .models import CollectionPeriod, SaleLineItem
+            from .models import CollectionPeriod
 
             period, _ = CollectionPeriod.objects.get_or_create(
                 business=business, module="bar", status="open",
                 defaults={"opening_expected_amount": 0},
             )
 
+            # ✅ Bug 1 fix: only add cash sales
             cash_total = sum(
                 li.line_total for li in sale.line_items.all()
                 if li.payment_status == SaleLineItem.PaymentStatus.PAID_FULL
