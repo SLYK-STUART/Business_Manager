@@ -13,6 +13,7 @@ class LoansScreen extends ConsumerStatefulWidget {
 
 class _LoansScreenState extends ConsumerState<LoansScreen> {
   String _filter = 'open'; // open | settled
+  String _searchQuery = '';
 
   Color _statusColor(String? status) {
     switch (status) {
@@ -61,9 +62,33 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
       ),
       body: Column(
         children: [
+          // ── Search ────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
+              style: const TextStyle(color: AppColors.textPrimaryOnLight),
+              decoration: InputDecoration(
+                hintText: 'Search by name or item…',
+                hintStyle: const TextStyle(color: AppColors.textHint),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: AppColors.textSecondaryOnLight,
+                ),
+                filled: true,
+                fillColor: AppColors.surfaceMuted,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+
           // ── Filter tabs ─────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
             child: Container(
               padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
@@ -104,9 +129,25 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                 ),
               ),
               data: (loans) {
-                final filtered = loans.where((loan) {
+                var filtered = loans.where((loan) {
                   final settled = _isSettled(loan);
-                  return _filter == 'open' ? !settled : settled;
+                  final matchesFilter =
+                  _filter == 'open' ? !settled : settled;
+
+                  if (!matchesFilter) return false;
+
+                  if (_searchQuery.isEmpty) return true;
+
+                  final name =
+                  (loan['customer_name']?.toString() ?? '').toLowerCase();
+                  final item =
+                  (loan['item_name']?.toString() ?? '').toLowerCase();
+                  final phone =
+                  (loan['customer_phone']?.toString() ?? '').toLowerCase();
+
+                  return name.contains(_searchQuery) ||
+                      item.contains(_searchQuery) ||
+                      phone.contains(_searchQuery);
                 }).toList();
 
                 if (_filter == 'open') {
@@ -120,9 +161,11 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                 if (filtered.isEmpty) {
                   return Center(
                     child: Text(
-                      _filter == 'open'
+                      _searchQuery.isNotEmpty
+                          ? 'No loans match “$_searchQuery”'
+                          : (_filter == 'open'
                           ? 'No open loans'
-                          : 'No settled loans yet',
+                          : 'No settled loans yet'),
                       style: const TextStyle(
                         color: AppColors.textSecondaryOnLight,
                         fontSize: 15,
@@ -133,7 +176,7 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
 
                 return RefreshIndicator(
                   color: AppColors.primary,
-                  onRefresh: ()  => ref.refresh(loanListProvider.future),
+                  onRefresh: () => ref.refresh(loanListProvider.future),
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                     itemCount: filtered.length,
@@ -165,12 +208,10 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            // Left content
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Amount + status
                                   Row(
                                     children: [
                                       Expanded(
@@ -191,7 +232,8 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: statusColor.withOpacity(0.12),
-                                          borderRadius: BorderRadius.circular(5),
+                                          borderRadius:
+                                          BorderRadius.circular(5),
                                         ),
                                         child: Text(
                                           _statusLabel(status),
@@ -205,10 +247,7 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                                       ),
                                     ],
                                   ),
-
                                   const SizedBox(height: 5),
-
-                                  // Item + qty
                                   Text(
                                     quantity != null
                                         ? '$itemName  ·  Qty $quantity'
@@ -221,10 +260,7 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                                       color: AppColors.textPrimaryOnLight,
                                     ),
                                   ),
-
                                   const SizedBox(height: 3),
-
-                                  // Customer + phone + due
                                   Text(
                                     [
                                       customerName,
@@ -243,13 +279,12 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                                 ],
                               ),
                             ),
-
-                            // Repay button
-                            // Actions
                             const SizedBox(width: 12),
                             isSettled
                                 ? Text(
-                              status == 'paid' ? 'Settled' : 'Written off',
+                              status == 'paid'
+                                  ? 'Settled'
+                                  : 'Written off',
                               style: const TextStyle(
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w600,
@@ -263,27 +298,110 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                                 } else if (action == 'write_off') {
                                   _confirmWriteOff(context, ref, loan);
                                 } else if (action == 'reschedule') {
-                                  _showRescheduleSheet(context, ref, loan);
+                                  _showRescheduleSheet(
+                                      context, ref, loan);
                                 }
                               },
+                              offset: const Offset(0, 40),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              color: Colors.white,
+                              elevation: 8,
                               itemBuilder: (context) => [
-                                const PopupMenuItem(
+                                PopupMenuItem(
                                   value: 'repay',
-                                  child: Text('Repay'),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary
+                                              .withOpacity(0.12),
+                                          borderRadius:
+                                          BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(
+                                          Icons.payments_outlined,
+                                          size: 17,
+                                          color: AppColors.primaryDark,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Text(
+                                        'Repay',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                                const PopupMenuItem(
+                                PopupMenuItem(
                                   value: 'reschedule',
-                                  child: Text('Reschedule Due Date'),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.info
+                                              .withOpacity(0.12),
+                                          borderRadius:
+                                          BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(
+                                          Icons.event_outlined,
+                                          size: 17,
+                                          color: AppColors.info,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Text(
+                                        'Reschedule due date',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                                const PopupMenuItem(
+                                const PopupMenuDivider(),
+                                PopupMenuItem(
                                   value: 'write_off',
-                                  child: Text(
-                                    'Write Off',
-                                    style: TextStyle(color: Colors.red),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.error
+                                              .withOpacity(0.12),
+                                          borderRadius:
+                                          BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(
+                                          Icons.block_rounded,
+                                          size: 17,
+                                          color: AppColors.error,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Text(
+                                        'Write off',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                          color: AppColors.error,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
-                              padding: EdgeInsets.zero,
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 10,
@@ -320,6 +438,22 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
     final customerPhone = loan['customer_phone']?.toString();
     final itemName = loan['item_name']?.toString();
     final quantity = loan['quantity'];
+    final maxAmount =
+        double.tryParse(loan['amount_remaining']?.toString() ?? '') ?? 0;
+
+    void clampAmount(String value) {
+      final parsed = double.tryParse(value);
+      if (parsed == null) return;
+      if (parsed > maxAmount) {
+        final clamped = maxAmount == maxAmount.truncateToDouble()
+            ? maxAmount.toStringAsFixed(0)
+            : maxAmount.toStringAsFixed(2);
+        controller.value = TextEditingValue(
+          text: clamped,
+          selection: TextSelection.collapsed(offset: clamped.length),
+        );
+      }
+    }
 
     showModalBottomSheet(
       context: context,
@@ -335,7 +469,7 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 70),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -361,8 +495,6 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-
-                // Context info
                 if (itemName != null)
                   Text(
                     quantity != null ? '$itemName · Qty $quantity' : itemName,
@@ -393,8 +525,16 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                     color: AppColors.textSecondaryOnLight,
                   ),
                 ),
-
-                const SizedBox(height: 20),
+                const SizedBox(height: 6),
+                Text(
+                  'Maximum: UGX ${loan['amount_remaining']}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primaryDark,
+                  ),
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: controller,
                   keyboardType:
@@ -404,6 +544,7 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                       RegExp(r'^\d*\.?\d{0,2}'),
                     ),
                   ],
+                  onChanged: clampAmount,
                   style: const TextStyle(
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimaryOnLight,
@@ -448,6 +589,19 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                       final amount = double.tryParse(controller.text);
                       if (amount == null || amount <= 0) return;
 
+                      if (amount > maxAmount) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Amount cannot exceed UGX ${loan['amount_remaining']}',
+                            ),
+                            backgroundColor: AppColors.error,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        return;
+                      }
+
                       await ref
                           .read(loanRepositoryProvider)
                           .repayLoan(loan['id'], amount);
@@ -478,10 +632,12 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
       },
     );
   }
+
   void _confirmWriteOff(BuildContext context, WidgetRef ref, dynamic loan) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Write Off Loan'),
         content: Text(
           "Mark UGX ${loan['amount_remaining']} as a loss? This can't be undone and will reduce actual profit for this period.",
@@ -497,33 +653,83 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
               await ref.read(loanRepositoryProvider).writeOffLoan(loan['id']);
               ref.invalidate(loanListProvider);
             },
-            child: const Text('Write Off', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Write Off',
+              style: TextStyle(color: AppColors.error),
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _showRescheduleSheet(BuildContext context, WidgetRef ref, dynamic loan) {
+  void _showRescheduleSheet(
+      BuildContext context, WidgetRef ref, dynamic loan) {
     DateTime newDate = DateTime.now().add(const Duration(days: 7));
+
     showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: const EdgeInsets.all(20),
+        builder: (context, setSheetState) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 70),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.borderOnLight,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
               const Text(
                 'Reschedule Due Date',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                title: Text(
-                  'New due date: ${newDate.toIso8601String().substring(0, 10)}',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimaryOnLight,
                 ),
-                trailing: const Icon(Icons.calendar_today, size: 18),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Current due: ${loan['due_date'] ?? '—'}',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondaryOnLight,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.calendar_today_rounded,
+                    size: 18,
+                    color: AppColors.info,
+                  ),
+                ),
+                title: Text(
+                  newDate.toIso8601String().substring(0, 10),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+                subtitle: const Text('Tap to change date'),
+                trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
                   final picked = await showDatePicker(
                     context: context,
@@ -531,20 +737,40 @@ class _LoansScreenState extends ConsumerState<LoansScreen> {
                     firstDate: DateTime.now(),
                     lastDate: DateTime(2100),
                   );
-                  if (picked != null) setSheetState(() => newDate = picked);
+                  if (picked != null) {
+                    setSheetState(() => newDate = picked);
+                  }
                 },
               ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () async {
-                  await ref.read(loanRepositoryProvider).rescheduleLoan(
-                    loan['id'],
-                    newDate.toIso8601String().substring(0, 10),
-                  );
-                  ref.invalidate(loanListProvider);
-                  if (context.mounted) Navigator.pop(context);
-                },
-                child: const Text('Save'),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    await ref.read(loanRepositoryProvider).rescheduleLoan(
+                      loan['id'],
+                      newDate.toIso8601String().substring(0, 10),
+                    );
+                    ref.invalidate(loanListProvider);
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.textOnPrimary,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text(
+                    'Save new due date',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

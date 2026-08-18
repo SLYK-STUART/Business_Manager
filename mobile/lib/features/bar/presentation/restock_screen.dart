@@ -17,7 +17,11 @@ class _RestockQueueEntry {
   final String mode; // 'unit' | 'bulk'
   final int quantity;
 
-  _RestockQueueEntry({required this.item, required this.mode, required this.quantity});
+  _RestockQueueEntry({
+    required this.item,
+    required this.mode,
+    required this.quantity,
+  });
 
   String get itemId => item['id'].toString();
   String get itemName => item['name'] ?? 'Unnamed';
@@ -27,13 +31,12 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
   dynamic _selectedItem;
   String _mode = 'unit'; // 'unit' | 'bulk'
 
-  final _qtyController = TextEditingController(); // used in unit mode
-  final _cratesController = TextEditingController(); // number of crates/packets
-  final _unitsPerController = TextEditingController(); // units inside one crate/packet
+  final _qtyController = TextEditingController();
+  final _cratesController = TextEditingController();
+  final _unitsPerController = TextEditingController();
 
   bool _submitting = false;
 
-  // Queue of items staged for restock in this session.
   final List<_RestockQueueEntry> _queue = [];
 
   @override
@@ -55,14 +58,53 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
     return stock <= threshold;
   }
 
+  bool _isInQueue(dynamic item) {
+    final id = item['id'].toString();
+    return _queue.any((e) => e.itemId == id);
+  }
+
+  _RestockQueueEntry? _queueEntryFor(dynamic item) {
+    final id = item['id'].toString();
+    try {
+      return _queue.firstWhere((e) => e.itemId == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _clearEntryFields() {
     _qtyController.clear();
     _cratesController.clear();
     _unitsPerController.clear();
   }
 
+  /// Select an item. If it's already in the queue, pre-fill the quantity
+  /// so the user can edit it instead of stacking a new amount.
   void _selectItem(dynamic item) {
-    setState(() => _selectedItem = item);
+    final existing = _queueEntryFor(item);
+
+    setState(() {
+      _selectedItem = item;
+
+      if (existing != null) {
+        // Prefill so the user can change the already-queued amount
+        _mode = existing.mode;
+        if (existing.mode == 'unit') {
+          _qtyController.text = existing.quantity.toString();
+          _cratesController.clear();
+          _unitsPerController.clear();
+        } else {
+          // Bulk: we only stored total units, so put it in the unit field
+          // and switch to unit mode for easy editing.
+          _mode = 'unit';
+          _qtyController.text = existing.quantity.toString();
+          _cratesController.clear();
+          _unitsPerController.clear();
+        }
+      } else {
+        _clearEntryFields();
+      }
+    });
   }
 
   void _addToQueue() {
@@ -83,15 +125,18 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
 
     setState(() {
       if (existingIndex != -1) {
-        // Same item added again — merge quantities instead of duplicating.
-        final existing = _queue[existingIndex];
+        // Replace the existing entry with the new (edited) quantity
         _queue[existingIndex] = _RestockQueueEntry(
-          item: existing.item,
+          item: _selectedItem,
           mode: _mode,
-          quantity: existing.quantity + quantity,
+          quantity: quantity,
         );
       } else {
-        _queue.add(_RestockQueueEntry(item: _selectedItem, mode: _mode, quantity: quantity));
+        _queue.add(_RestockQueueEntry(
+          item: _selectedItem,
+          mode: _mode,
+          quantity: quantity,
+        ));
       }
       _selectedItem = null;
       _clearEntryFields();
@@ -99,7 +144,11 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Added — pick the next item'),
+        content: Text(
+          existingIndex != -1
+              ? 'Updated quantity in restock list'
+              : 'Added — pick the next item',
+        ),
         backgroundColor: AppColors.success,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(milliseconds: 900),
@@ -121,7 +170,9 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
       labelText: label,
       hintText: hint,
       filled: true,
-      fillColor: readOnly ? AppColors.surfaceMuted.withOpacity(0.6) : AppColors.surfaceMuted,
+      fillColor: readOnly
+          ? AppColors.surfaceMuted.withOpacity(0.6)
+          : AppColors.surfaceMuted,
       prefixIcon: prefixIcon != null
           ? Icon(prefixIcon, color: AppColors.textSecondaryOnLight, size: 20)
           : null,
@@ -185,7 +236,8 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                       loading: () => const Center(
                         child: Padding(
                           padding: EdgeInsets.symmetric(vertical: 24),
-                          child: CircularProgressIndicator(color: AppColors.primary),
+                          child: CircularProgressIndicator(
+                              color: AppColors.primary),
                         ),
                       ),
                       error: (e, _) => Container(
@@ -193,7 +245,8 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                         decoration: BoxDecoration(
                           color: AppColors.error.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.error.withOpacity(0.3)),
+                          border: Border.all(
+                              color: AppColors.error.withOpacity(0.3)),
                         ),
                         child: Text(
                           'Failed to load items: $e',
@@ -201,7 +254,14 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                         ),
                       ),
                       data: (items) {
+                        // Low-stock items: not-in-queue first, then already-queued at the end
                         final lowStockItems = items.where(_isLowStock).toList();
+                        lowStockItems.sort((a, b) {
+                          final aIn = _isInQueue(a);
+                          final bIn = _isInQueue(b);
+                          if (aIn == bIn) return 0;
+                          return aIn ? 1 : -1; // queued ones go to the end
+                        });
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -233,7 +293,8 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                               const SizedBox(height: 18),
                               Row(
                                 children: [
-                                  const Icon(Icons.bolt_rounded, size: 16, color: AppColors.warning),
+                                  const Icon(Icons.bolt_rounded,
+                                      size: 16, color: AppColors.warning),
                                   const SizedBox(width: 6),
                                   Text(
                                     'Low stock — tap to restock quickly',
@@ -247,18 +308,25 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                               ),
                               const SizedBox(height: 10),
                               SizedBox(
-                                height: 92,
+                                height: 100,
                                 child: ListView.separated(
                                   scrollDirection: Axis.horizontal,
                                   itemCount: lowStockItems.length,
-                                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                                  separatorBuilder: (_, __) =>
+                                  const SizedBox(width: 10),
                                   itemBuilder: (context, i) {
                                     final item = lowStockItems[i];
                                     final isSelected = _selectedItem != null &&
                                         _selectedItem['id'] == item['id'];
-                                    final stock = (item['current_stock'] as num?) ?? 0;
+                                    final alreadyQueued = _isInQueue(item);
+                                    final stock =
+                                        (item['current_stock'] as num?) ?? 0;
                                     final isOut = stock <= 0;
-                                    final accent = isOut ? AppColors.error : AppColors.warning;
+                                    final accent = alreadyQueued
+                                        ? AppColors.success
+                                        : (isOut
+                                        ? AppColors.error
+                                        : AppColors.warning);
 
                                     return GestureDetector(
                                       onTap: () => _selectItem(item),
@@ -268,35 +336,50 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                                         decoration: BoxDecoration(
                                           color: isSelected
                                               ? accent.withOpacity(0.12)
-                                              : Colors.white,
-                                          borderRadius: BorderRadius.circular(14),
+                                              : (alreadyQueued
+                                              ? AppColors.success
+                                              .withOpacity(0.06)
+                                              : Colors.white),
+                                          borderRadius:
+                                          BorderRadius.circular(14),
                                           border: Border.all(
-                                            color: isSelected ? accent : AppColors.borderOnLight,
-                                            width: isSelected ? 1.6 : 1,
+                                            color: isSelected || alreadyQueued
+                                                ? accent
+                                                : AppColors.borderOnLight,
+                                            width: isSelected || alreadyQueued
+                                                ? 1.6
+                                                : 1,
                                           ),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: Colors.black.withOpacity(0.03),
+                                              color:
+                                              Colors.black.withOpacity(0.03),
                                               blurRadius: 8,
                                               offset: const Offset(0, 3),
                                             ),
                                           ],
                                         ),
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                           children: [
                                             Row(
                                               children: [
                                                 Icon(
-                                                  isOut
-                                                      ? Icons.remove_circle_outline_rounded
-                                                      : Icons.warning_amber_rounded,
+                                                  alreadyQueued
+                                                      ? Icons.check_circle_rounded
+                                                      : (isOut
+                                                      ? Icons
+                                                      .remove_circle_outline_rounded
+                                                      : Icons
+                                                      .warning_amber_rounded),
                                                   size: 15,
                                                   color: accent,
                                                 ),
                                                 const Spacer(),
-                                                if (isSelected)
-                                                  Icon(Icons.check_circle_rounded, size: 15, color: accent),
+                                                if (isSelected && !alreadyQueued)
+                                                  Icon(Icons.check_circle_rounded,
+                                                      size: 15, color: accent),
                                               ],
                                             ),
                                             const Spacer(),
@@ -307,12 +390,17 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                                               style: const TextStyle(
                                                 fontSize: 12.5,
                                                 fontWeight: FontWeight.w700,
-                                                color: AppColors.textPrimaryOnLight,
+                                                color: AppColors
+                                                    .textPrimaryOnLight,
                                               ),
                                             ),
                                             const SizedBox(height: 2),
                                             Text(
-                                              isOut ? 'Out of stock' : '$stock left',
+                                              alreadyQueued
+                                                  ? 'In list · ${_queueEntryFor(item)?.quantity ?? 0} units'
+                                                  : (isOut
+                                                  ? 'Out of stock'
+                                                  : '$stock left'),
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 fontWeight: FontWeight.w600,
@@ -357,15 +445,18 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                         ),
                       ],
                       selected: {_mode},
-                      onSelectionChanged: (s) => setState(() => _mode = s.first),
+                      onSelectionChanged: (s) =>
+                          setState(() => _mode = s.first),
                       style: ButtonStyle(
-                        backgroundColor: WidgetStateProperty.resolveWith((states) {
+                        backgroundColor:
+                        WidgetStateProperty.resolveWith((states) {
                           if (states.contains(WidgetState.selected)) {
                             return AppColors.primary;
                           }
                           return AppColors.surfaceMuted;
                         }),
-                        foregroundColor: WidgetStateProperty.resolveWith((states) {
+                        foregroundColor:
+                        WidgetStateProperty.resolveWith((states) {
                           if (states.contains(WidgetState.selected)) {
                             return AppColors.textOnPrimary;
                           }
@@ -375,7 +466,8 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                           const BorderSide(color: AppColors.borderOnLight),
                         ),
                         shape: WidgetStateProperty.all(
-                          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                       ),
                     ),
@@ -386,7 +478,9 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                       TextFormField(
                         controller: _qtyController,
                         keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly
+                        ],
                         style: const TextStyle(
                           color: AppColors.textPrimaryOnLight,
                           fontWeight: FontWeight.w500,
@@ -407,7 +501,9 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                             child: TextFormField(
                               controller: _cratesController,
                               keyboardType: TextInputType.number,
-                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly
+                              ],
                               onChanged: (_) => setState(() {}),
                               style: const TextStyle(
                                 color: AppColors.textPrimaryOnLight,
@@ -425,7 +521,9 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                             child: TextFormField(
                               controller: _unitsPerController,
                               keyboardType: TextInputType.number,
-                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly
+                              ],
                               onChanged: (_) => setState(() {}),
                               style: const TextStyle(
                                 color: AppColors.textPrimaryOnLight,
@@ -441,8 +539,6 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
-
-                      // Auto-calculated total units
                       TextFormField(
                         enabled: false,
                         controller: TextEditingController(
@@ -463,20 +559,30 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
 
                     const SizedBox(height: 16),
 
-                    // ── Add to list button ───────────────────────────────────
+                    // ── Add / Update button ─────────────────────────────────
                     SizedBox(
                       width: double.infinity,
                       height: 48,
                       child: OutlinedButton.icon(
-                        onPressed: _selectedItem == null ? null : _addToQueue,
-                        icon: const Icon(Icons.playlist_add_rounded, size: 20),
-                        label: const Text(
-                          'Add to restock list',
-                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
+                        onPressed:
+                        _selectedItem == null ? null : _addToQueue,
+                        icon: Icon(
+                          _selectedItem != null && _isInQueue(_selectedItem)
+                              ? Icons.edit_rounded
+                              : Icons.playlist_add_rounded,
+                          size: 20,
+                        ),
+                        label: Text(
+                          _selectedItem != null && _isInQueue(_selectedItem)
+                              ? 'Update restock list'
+                              : 'Add to restock list',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 14.5),
                         ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.primaryDark,
-                          side: const BorderSide(color: AppColors.primary, width: 1.6),
+                          side: const BorderSide(
+                              color: AppColors.primary, width: 1.6),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
@@ -486,32 +592,35 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
 
                     const SizedBox(height: 16),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
                         color: AppColors.info.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.info_outline, size: 16, color: AppColors.info),
+                          const Icon(Icons.info_outline,
+                              size: 16, color: AppColors.info),
                           const SizedBox(width: 8),
                           const Expanded(
                             child: Text(
                               'Buying price is set separately by the owner once the cost is known.',
-                              style: TextStyle(fontSize: 12, color: AppColors.info),
+                              style: TextStyle(
+                                  fontSize: 12, color: AppColors.info),
                             ),
                           ),
                         ],
                       ),
                     ),
 
-                    // ── Restock list (auto-updates) ──────────────────────────
+                    // ── Restock list ────────────────────────────────────────
                     const SizedBox(height: 28),
                     Row(
                       children: [
-                        Text(
+                        const Text(
                           'Restock list',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                             color: AppColors.textPrimaryOnLight,
@@ -520,7 +629,8 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                         const SizedBox(width: 8),
                         if (_queue.isNotEmpty)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
                               color: AppColors.primary.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(8),
@@ -545,11 +655,13 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                         decoration: BoxDecoration(
                           color: AppColors.surfaceMuted,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.borderOnLight),
+                          border:
+                          Border.all(color: AppColors.borderOnLight),
                         ),
                         child: Text(
                           'No items added yet',
-                          style: TextStyle(color: AppColors.textSecondaryOnLight),
+                          style: TextStyle(
+                              color: AppColors.textSecondaryOnLight),
                         ),
                       )
                     else
@@ -557,11 +669,13 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                         final entry = _queue[index];
                         return Container(
                           margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: AppColors.borderOnLight),
+                            border:
+                            Border.all(color: AppColors.borderOnLight),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withOpacity(0.03),
@@ -576,7 +690,8 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                                 width: 34,
                                 height: 34,
                                 decoration: BoxDecoration(
-                                  color: AppColors.success.withOpacity(0.12),
+                                  color:
+                                  AppColors.success.withOpacity(0.12),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: const Icon(
@@ -588,7 +703,8 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       entry.itemName,
@@ -607,15 +723,26 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
                                           : '${entry.quantity} units',
                                       style: const TextStyle(
                                         fontSize: 12,
-                                        color: AppColors.textSecondaryOnLight,
+                                        color: AppColors
+                                            .textSecondaryOnLight,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
+                              // Tap row to edit
+                              IconButton(
+                                onPressed: () => _selectItem(entry.item),
+                                icon: const Icon(Icons.edit_rounded,
+                                    size: 18),
+                                color: AppColors.textSecondaryOnLight,
+                                splashRadius: 20,
+                                tooltip: 'Edit quantity',
+                              ),
                               IconButton(
                                 onPressed: () => _removeFromQueue(index),
-                                icon: const Icon(Icons.close_rounded, size: 18),
+                                icon: const Icon(Icons.close_rounded,
+                                    size: 18),
                                 color: AppColors.textSecondaryOnLight,
                                 splashRadius: 20,
                               ),
@@ -634,18 +761,21 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
               decoration: BoxDecoration(
                 color: AppColors.surfaceLight,
                 border: Border(
-                  top: BorderSide(color: AppColors.borderOnLight.withOpacity(0.6)),
+                  top: BorderSide(
+                      color: AppColors.borderOnLight.withOpacity(0.6)),
                 ),
               ),
               child: SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: (_submitting || _queue.isEmpty) ? null : _submitAll,
+                  onPressed:
+                  (_submitting || _queue.isEmpty) ? null : _submitAll,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: AppColors.textOnPrimary,
-                    disabledBackgroundColor: AppColors.primary.withOpacity(0.4),
+                    disabledBackgroundColor:
+                    AppColors.primary.withOpacity(0.4),
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
@@ -687,8 +817,6 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
     final repo = ref.read(itemRepositoryProvider);
     final failures = <String>[];
 
-    // Submit sequentially so a failure on one item doesn't lose track of
-    // which ones already succeeded (and so we can report exactly what failed).
     for (final entry in List<_RestockQueueEntry>.from(_queue)) {
       try {
         await repo.restock(
@@ -706,7 +834,6 @@ class _RestockScreenState extends ConsumerState<RestockScreen> {
     ref.invalidate(itemListProvider);
 
     setState(() {
-      // Keep only the ones that failed, so the manager can retry just those.
       _queue.removeWhere((e) => !failures.contains(e.itemName));
       _submitting = false;
     });

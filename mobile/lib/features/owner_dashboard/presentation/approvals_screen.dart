@@ -29,7 +29,7 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
   IconData _typeIcon(String type) {
     switch (type) {
       case 'shortfall':
-        return Icons.money_off_csred_rounded;
+        return Icons.payments_outlined;
       case 'free_giveaway':
         return Icons.card_giftcard_rounded;
       case 'non_business_transaction':
@@ -50,21 +50,6 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
       default:
         return AppColors.textSecondaryOnLight;
     }
-  }
-
-  String _detailLine(Map<String, dynamic> item) {
-    final type = item['type'];
-    final detail = item['detail'];
-    if (detail == null) return '';
-    if (type == 'shortfall') {
-      return 'Old balance UGX ${detail['expected_amount']}  \nCollected UGX ${detail['collected_amount']} \n(New balance UGX ${detail['variance']})';
-    } else if (type == 'free_giveaway') {
-      return '${detail['item_name']} → ${detail['recipient_name']} (value UGX ${detail['value']})';
-    } else if (type == 'non_business_transaction') {
-      final dir = detail['direction'] == 'out' ? 'Out' : 'In';
-      return '$dir — UGX ${detail['amount']} — ${detail['description']}';
-    }
-    return '';
   }
 
   @override
@@ -92,7 +77,6 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
       ),
       body: Column(
         children: [
-          // ── Status filter ───────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
             child: SegmentedButton<String>(
@@ -114,8 +98,9 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                 ),
               ],
               selected: {statusFilter},
-              onSelectionChanged: (s) =>
-              ref.read(approvalsStatusFilterProvider.notifier).state = s.first,
+              onSelectionChanged: (s) => ref
+                  .read(approvalsStatusFilterProvider.notifier)
+                  .state = s.first,
               style: ButtonStyle(
                 backgroundColor: WidgetStateProperty.resolveWith((states) {
                   if (states.contains(WidgetState.selected)) {
@@ -133,13 +118,13 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                   const BorderSide(color: AppColors.borderOnLight),
                 ),
                 shape: WidgetStateProperty.all(
-                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
               ),
             ),
           ),
 
-          // ── List ────────────────────────────────────────────────────────
           Expanded(
             child: approvalsAsync.when(
               loading: () => const Center(
@@ -153,95 +138,137 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
               ),
               data: (items) {
                 if (items.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'Nothing here',
-                      style: TextStyle(
-                        color: AppColors.textSecondaryOnLight,
-                        fontSize: 15,
-                      ),
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          statusFilter == 'pending'
+                              ? Icons.inbox_outlined
+                              : Icons.check_circle_outline_rounded,
+                          size: 40,
+                          color: AppColors.textHint,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          statusFilter == 'pending'
+                              ? 'No pending approvals'
+                              : 'Nothing here',
+                          style: const TextStyle(
+                            color: AppColors.textSecondaryOnLight,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
                     ),
                   );
                 }
 
                 return RefreshIndicator(
                   color: AppColors.primary,
-                  onRefresh: () async => ref.invalidate(approvalsListProvider),
+                  onRefresh: () async =>
+                      ref.invalidate(approvalsListProvider),
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
                     itemCount: items.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, i) {
-                      final item = items[i];
+                      final item = items[i] as Map<String, dynamic>;
                       final id = item['id'] as String;
                       final isProcessing = _processing.contains(id);
-                      final typeColor = _typeColor(item['type']);
+                      final type = item['type']?.toString() ?? '';
+                      final typeColor = _typeColor(type);
+                      final isShortfall = type == 'shortfall';
+                      final detail =
+                      item['detail'] as Map<String, dynamic>?;
 
                       return Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppColors.borderOnLight),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.03),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
+                          borderRadius: BorderRadius.circular(14),
+                          border:
+                          Border.all(color: AppColors.borderOnLight),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Type header
+                            // Header
                             Row(
                               children: [
                                 Container(
-                                  width: 36,
-                                  height: 36,
+                                  width: 34,
+                                  height: 34,
                                   decoration: BoxDecoration(
                                     color: typeColor.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(9),
                                   ),
                                   child: Icon(
-                                    _typeIcon(item['type']),
-                                    size: 18,
+                                    _typeIcon(type),
+                                    size: 17,
                                     color: typeColor,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
-                                    _typeLabel(item['type']),
+                                    _typeLabel(type),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w700,
-                                      fontSize: 15,
+                                      fontSize: 14,
                                       color: AppColors.textPrimaryOnLight,
                                     ),
                                   ),
                                 ),
+                                if (statusFilter != 'pending')
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: statusFilter == 'approved'
+                                          ? AppColors.success
+                                          .withOpacity(0.12)
+                                          : AppColors.error
+                                          .withOpacity(0.12),
+                                      borderRadius:
+                                      BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      statusFilter == 'approved'
+                                          ? 'APPROVED'
+                                          : 'REJECTED',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: statusFilter == 'approved'
+                                            ? AppColors.success
+                                            : AppColors.error,
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                             const SizedBox(height: 12),
 
-                            // Detail
-                            Text(
-                              _detailLine(item),
-                              style: const TextStyle(
-                                fontSize: 13.5,
-                                height: 1.35,
-                                color: AppColors.textPrimaryOnLight,
+                            // Detail block
+                            if (isShortfall && detail != null)
+                              _ShortfallBreakdown(detail: detail)
+                            else
+                              Text(
+                                _simpleDetail(type, detail),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  height: 1.35,
+                                  color: AppColors.textPrimaryOnLight,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 10),
 
-                            // Meta
+                            const SizedBox(height: 10),
                             Text(
                               'Logged by ${item['requested_by_name'] ?? 'Unknown'}',
                               style: const TextStyle(
                                 color: AppColors.textSecondaryOnLight,
-                                fontSize: 12.5,
+                                fontSize: 12,
                               ),
                             ),
                             if (item['resolved_by_name'] != null) ...[
@@ -250,66 +277,161 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                                 'Resolved by ${item['resolved_by_name']}',
                                 style: const TextStyle(
                                   color: AppColors.textSecondaryOnLight,
-                                  fontSize: 12.5,
+                                  fontSize: 12,
                                 ),
                               ),
                             ],
 
-                            // Actions (pending only)
+                            // Actions
                             if (statusFilter == 'pending') ...[
-                              const SizedBox(height: 16),
-                              if (item['type'] == 'shortfall') ...[
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: SizedBox(
-                                        height: 44,
-                                        child: OutlinedButton(
-                                          onPressed: isProcessing ? null : () => _act(id, false),
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor: AppColors.error,
-                                            side: const BorderSide(color: AppColors.error, width: 1.3),
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                          ),
-                                          child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.w600)),
-                                        ),
+                              const SizedBox(height: 14),
+                              if (isShortfall) ...[
+                                // Reject
+                                SizedBox(
+                                  width: double.infinity,
+                                  height: 42,
+                                  child: OutlinedButton(
+                                    onPressed: isProcessing
+                                        ? null
+                                        : () => _confirmAndAct(
+                                      item: item,
+                                      approve: false,
+                                      title: 'Reject collection?',
+                                      message:
+                                      'This will reject the money-collected report. The manager may need to resubmit.',
+                                      confirmLabel: 'Reject',
+                                      isDestructive: true,
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppColors.error,
+                                      side: const BorderSide(
+                                          color: AppColors.error,
+                                          width: 1.2),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                        BorderRadius.circular(11),
                                       ),
                                     ),
-                                  ],
+                                    child: const Text(
+                                      'Reject',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
                                 ),
-                                const SizedBox(height: 10),
+                                const SizedBox(height: 8),
                                 Row(
                                   children: [
                                     Expanded(
                                       child: SizedBox(
-                                        height: 44,
+                                        height: 42,
                                         child: OutlinedButton(
-                                          onPressed: isProcessing ? null : () => _act(id, true, classification: "matched"),
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor: AppColors.success,
-                                            side: const BorderSide(color: AppColors.success, width: 1.3),
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          onPressed: isProcessing
+                                              ? null
+                                              : () => _confirmAndAct(
+                                            item: item,
+                                            approve: true,
+                                            classification:
+                                            'matched',
+                                            title:
+                                            'Mark as matched?',
+                                            message:
+                                            'You are confirming the difference was left in the business (matched). This is not treated as a loss.',
+                                            confirmLabel:
+                                            'Confirm matched',
+                                            isDestructive: false,
+                                            confirmColor:
+                                            AppColors.success,
                                           ),
-                                          child: const Text('Matched / Left in Business', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5), textAlign: TextAlign.center),
+                                          style:
+                                          OutlinedButton.styleFrom(
+                                            foregroundColor:
+                                            AppColors.success,
+                                            side: const BorderSide(
+                                                color: AppColors.success,
+                                                width: 1.2),
+                                            shape:
+                                            RoundedRectangleBorder(
+                                              borderRadius:
+                                              BorderRadius.circular(
+                                                  11),
+                                            ),
+                                            padding:
+                                            const EdgeInsets
+                                                .symmetric(
+                                                horizontal: 8),
+                                          ),
+                                          child: const Text(
+                                            'Matched / Left in',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 12,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(width: 10),
+                                    const SizedBox(width: 8),
                                     Expanded(
                                       child: SizedBox(
-                                        height: 44,
+                                        height: 42,
                                         child: ElevatedButton(
-                                          onPressed: isProcessing ? null : () => _act(id, true, classification: "shortfall"),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: AppColors.error,
+                                          onPressed: isProcessing
+                                              ? null
+                                              : () => _confirmAndAct(
+                                            item: item,
+                                            approve: true,
+                                            classification:
+                                            'shortfall',
+                                            title:
+                                            'Record genuine shortfall?',
+                                            message:
+                                            'This marks the variance as a real shortfall (loss). This affects reported profit and cannot be easily undone.',
+                                            confirmLabel:
+                                            'Confirm shortfall',
+                                            isDestructive: true,
+                                          ),
+                                          style:
+                                          ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                            AppColors.error,
                                             foregroundColor: Colors.white,
-                                            disabledBackgroundColor: AppColors.error.withOpacity(0.45),
+                                            disabledBackgroundColor:
+                                            AppColors.error
+                                                .withOpacity(0.45),
                                             elevation: 0,
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                            padding:
+                                            const EdgeInsets
+                                                .symmetric(
+                                                horizontal: 8),
+                                            shape:
+                                            RoundedRectangleBorder(
+                                              borderRadius:
+                                              BorderRadius.circular(
+                                                  11),
+                                            ),
                                           ),
                                           child: isProcessing
-                                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
-                                              : const Text('Genuine Shortfall', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5), textAlign: TextAlign.center),
+                                              ? const SizedBox(
+                                            height: 18,
+                                            width: 18,
+                                            child:
+                                            CircularProgressIndicator(
+                                              strokeWidth: 2.2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                              : const Text(
+                                            'Genuine shortfall',
+                                            style: TextStyle(
+                                              fontWeight:
+                                              FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                            textAlign:
+                                            TextAlign.center,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -320,34 +442,95 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                                   children: [
                                     Expanded(
                                       child: SizedBox(
-                                        height: 44,
+                                        height: 42,
                                         child: OutlinedButton(
-                                          onPressed: isProcessing ? null : () => _act(id, false),
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor: AppColors.error,
-                                            side: const BorderSide(color: AppColors.error, width: 1.3),
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          onPressed: isProcessing
+                                              ? null
+                                              : () => _confirmAndAct(
+                                            item: item,
+                                            approve: false,
+                                            title: 'Reject?',
+                                            message:
+                                            'Reject this ${_typeLabel(type).toLowerCase()} request?',
+                                            confirmLabel:
+                                            'Reject',
+                                            isDestructive: true,
                                           ),
-                                          child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.w600)),
+                                          style:
+                                          OutlinedButton.styleFrom(
+                                            foregroundColor:
+                                            AppColors.error,
+                                            side: const BorderSide(
+                                                color: AppColors.error,
+                                                width: 1.2),
+                                            shape:
+                                            RoundedRectangleBorder(
+                                              borderRadius:
+                                              BorderRadius.circular(
+                                                  11),
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'Reject',
+                                            style: TextStyle(
+                                                fontWeight:
+                                                FontWeight.w600),
+                                          ),
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(width: 12),
+                                    const SizedBox(width: 10),
                                     Expanded(
                                       child: SizedBox(
-                                        height: 44,
+                                        height: 42,
                                         child: ElevatedButton(
-                                          onPressed: isProcessing ? null : () => _act(id, true),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: AppColors.primary,
-                                            foregroundColor: AppColors.textOnPrimary,
-                                            disabledBackgroundColor: AppColors.primary.withOpacity(0.45),
+                                          onPressed: isProcessing
+                                              ? null
+                                              : () => _confirmAndAct(
+                                            item: item,
+                                            approve: true,
+                                            title: 'Approve?',
+                                            message:
+                                            'Approve this ${_typeLabel(type).toLowerCase()}?',
+                                            confirmLabel:
+                                            'Approve',
+                                            isDestructive: false,
+                                          ),
+                                          style:
+                                          ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                            AppColors.primary,
+                                            foregroundColor:
+                                            AppColors.textOnPrimary,
+                                            disabledBackgroundColor:
+                                            AppColors.primary
+                                                .withOpacity(0.45),
                                             elevation: 0,
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                            shape:
+                                            RoundedRectangleBorder(
+                                              borderRadius:
+                                              BorderRadius.circular(
+                                                  11),
+                                            ),
                                           ),
                                           child: isProcessing
-                                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.textOnPrimary))
-                                              : const Text('Approve', style: TextStyle(fontWeight: FontWeight.w700)),
+                                              ? const SizedBox(
+                                            height: 18,
+                                            width: 18,
+                                            child:
+                                            CircularProgressIndicator(
+                                              strokeWidth: 2.2,
+                                              color: AppColors
+                                                  .textOnPrimary,
+                                            ),
+                                          )
+                                              : const Text(
+                                            'Approve',
+                                            style: TextStyle(
+                                                fontWeight:
+                                                FontWeight
+                                                    .w700),
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -369,7 +552,140 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
     );
   }
 
-  Future<void> _act(String id, bool approve, {String? classification}) async {
+  String _simpleDetail(String type, Map<String, dynamic>? detail) {
+    if (detail == null) return '';
+    if (type == 'free_giveaway') {
+      return '${detail['item_name']} → ${detail['recipient_name']} (value UGX ${detail['value']})';
+    }
+    if (type == 'non_business_transaction') {
+      final dir = detail['direction'] == 'out' ? 'Out' : 'In';
+      return '$dir — UGX ${detail['amount']} — ${detail['description']}';
+    }
+    return '';
+  }
+
+  Future<void> _confirmAndAct({
+    required Map<String, dynamic> item,
+    required bool approve,
+    String? classification,
+    required String title,
+    required String message,
+    required String confirmLabel,
+    required bool isDestructive,
+    Color? confirmColor,
+  }) async {
+    final detail = item['detail'] as Map<String, dynamic>?;
+    final isShortfall = item['type'] == 'shortfall';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 17,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: AppColors.textSecondaryOnLight,
+              ),
+            ),
+            if (isShortfall && detail != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceMuted,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _dialogRow(
+                        'Expected', 'UGX ${detail['expected_amount']}'),
+                    _dialogRow(
+                        'Collected', 'UGX ${detail['collected_amount']}'),
+                    _dialogRow(
+                        'Variance', 'UGX ${detail['variance']}',
+                        emphasize: true),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              confirmLabel,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: isDestructive
+                    ? AppColors.error
+                    : (confirmColor ?? AppColors.primaryDark),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    await _act(item['id'] as String, approve,
+        classification: classification);
+  }
+
+  Widget _dialogRow(String label, String value, {bool emphasize = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: emphasize
+                  ? AppColors.textPrimaryOnLight
+                  : AppColors.textSecondaryOnLight,
+              fontWeight: emphasize ? FontWeight.w600 : FontWeight.w400,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: emphasize
+                  ? AppColors.error
+                  : AppColors.textPrimaryOnLight,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _act(String id, bool approve,
+      {String? classification}) async {
     setState(() => _processing.add(id));
     try {
       final repo = ref.read(approvalsRepositoryProvider);
@@ -379,14 +695,91 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
         await repo.reject(id);
       }
       ref.invalidate(approvalsListProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              approve
+                  ? (classification == 'shortfall'
+                  ? 'Recorded as genuine shortfall'
+                  : classification == 'matched'
+                  ? 'Marked as matched / left in business'
+                  : 'Approved')
+                  : 'Rejected',
+            ),
+            backgroundColor:
+            approve ? AppColors.success : AppColors.warning,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'), backgroundColor: AppColors.error, behavior: SnackBarBehavior.floating),
+          SnackBar(
+            content: Text('Failed: $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } finally {
       if (mounted) setState(() => _processing.remove(id));
     }
+  }
+}
+
+class _ShortfallBreakdown extends StatelessWidget {
+  final Map<String, dynamic> detail;
+  const _ShortfallBreakdown({required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          _row('Expected', 'UGX ${detail['expected_amount']}'),
+          const SizedBox(height: 4),
+          _row('Collected', 'UGX ${detail['collected_amount']}'),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: Divider(height: 1, color: AppColors.borderOnLight),
+          ),
+          _row('Variance', 'UGX ${detail['variance']}', highlight: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, String value, {bool highlight = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12.5,
+            color: highlight
+                ? AppColors.textPrimaryOnLight
+                : AppColors.textSecondaryOnLight,
+            fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: highlight ? AppColors.error : AppColors.textPrimaryOnLight,
+          ),
+        ),
+      ],
+    );
   }
 }

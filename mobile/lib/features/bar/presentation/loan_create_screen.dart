@@ -22,7 +22,7 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
   bool _searching = false;
   String _query = '';
 
-  // Local cart for this screen: itemId → {item, quantity}
+  // Local cart: itemId → {item, quantity}
   final Map<String, Map<String, dynamic>> _selected = {};
 
   @override
@@ -171,296 +171,7 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── Search bar (when active) ────────────────────────
-                    if (_searching) ...[
-                      TextField(
-                        controller: _searchController,
-                        autofocus: true,
-                        style: const TextStyle(
-                          color: AppColors.textPrimaryOnLight,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        decoration: _fieldDecoration(
-                          label: 'Search items',
-                          hint: 'Type item name...',
-                          prefixIcon: Icons.search_rounded,
-                        ),
-                        onChanged: (v) => setState(() => _query = v),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // ── Selected summary ────────────────────────────────
-                    if (selectedCount > 0) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.primary.withOpacity(0.25),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.shopping_bag_outlined,
-                                size: 18, color: AppColors.primary),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                '$selectedCount item${selectedCount == 1 ? '' : 's'} · Qty $totalQty',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.primary,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => setState(() => _selected.clear()),
-                              child: const Text(
-                                'Clear',
-                                style: TextStyle(
-                                  color: AppColors.error,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // ── Item list ───────────────────────────────────────
-                    const Text(
-                      'SELECT ITEMS',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textSecondaryOnLight,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    itemsAsync.when(
-                      loading: () => const Center(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 32),
-                          child: CircularProgressIndicator(
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ),
-                      error: (e, _) => Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.error.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.error.withOpacity(0.3),
-                          ),
-                        ),
-                        child: Text(
-                          'Failed to load items: $e',
-                          style: const TextStyle(color: AppColors.error),
-                        ),
-                      ),
-                      data: (items) {
-                        final filtered = _query.isEmpty
-                            ? items
-                            : items
-                            .where((it) => (it['name'] ?? '')
-                            .toString()
-                            .toLowerCase()
-                            .contains(_query.toLowerCase()))
-                            .toList();
-
-                        if (filtered.isEmpty) {
-                          return Center(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 32),
-                              child: Text(
-                                _query.isEmpty
-                                    ? 'No items available'
-                                    : 'No items match "$_query"',
-                                style: const TextStyle(
-                                  color: AppColors.textSecondaryOnLight,
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-
-                        return ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: filtered.length,
-                          separatorBuilder: (_, __) =>
-                          const SizedBox(height: 10),
-                          itemBuilder: (context, i) {
-                            final item = filtered[i];
-                            final id = item['id'].toString();
-                            final name = item['name']?.toString() ?? 'Unnamed';
-                            final stock = _stockOf(item);
-                            final qty = _qtyOf(id);
-                            final selected = qty > 0;
-                            final canIncrease = qty < stock;
-
-                            return Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: selected
-                                      ? AppColors.primary.withOpacity(0.4)
-                                      : AppColors.borderOnLight,
-                                  width: selected ? 1.5 : 1,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.03),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  // Icon
-                                  Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: selected
-                                          ? AppColors.primary.withOpacity(0.12)
-                                          : AppColors.surfaceMuted,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Icon(
-                                      Icons.inventory_2_outlined,
-                                      size: 20,
-                                      color: selected
-                                          ? AppColors.primary
-                                          : AppColors.textSecondaryOnLight,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-
-                                  // Name + stock
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          name,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 14,
-                                            color: AppColors.textPrimaryOnLight,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Stock: $stock',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: stock == 0
-                                                ? AppColors.error
-                                                : AppColors.textSecondaryOnLight,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
-                                  // Quantity controls
-                                  if (stock > 0)
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: AppColors.surfaceMuted,
-                                        borderRadius: BorderRadius.circular(30),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            visualDensity:
-                                            VisualDensity.compact,
-                                            icon: const Icon(
-                                                Icons.remove_rounded,
-                                                size: 18),
-                                            color: qty > 0
-                                                ? AppColors.textPrimaryOnLight
-                                                : AppColors
-                                                .textSecondaryOnLight
-                                                .withOpacity(0.3),
-                                            onPressed: qty > 0
-                                                ? () =>
-                                                _setQty(item, qty - 1)
-                                                : null,
-                                          ),
-                                          SizedBox(
-                                            width: 24,
-                                            child: Text(
-                                              '$qty',
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 14,
-                                                color: AppColors
-                                                    .textPrimaryOnLight,
-                                              ),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            visualDensity:
-                                            VisualDensity.compact,
-                                            icon: const Icon(Icons.add_rounded,
-                                                size: 18),
-                                            color: canIncrease
-                                                ? AppColors.primary
-                                                : AppColors
-                                                .textSecondaryOnLight
-                                                .withOpacity(0.3),
-                                            onPressed: canIncrease
-                                                ? () =>
-                                                _setQty(item, qty + 1)
-                                                : null,
-                                          ),
-                                        ],
-                                      ),
-                                    )
-                                  else
-                                    const Text(
-                                      'Out of stock',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: AppColors.error,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 28),
-
-                    // ── Customer section ────────────────────────────────
+                    // ── CUSTOMER (top) ──────────────────────────────────
                     const Text(
                       'CUSTOMER',
                       style: TextStyle(
@@ -543,6 +254,443 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
                         ),
                       ),
                     ],
+
+                    const SizedBox(height: 28),
+
+                    // ── Selected items (detailed) ───────────────────────
+                    if (selectedCount > 0) ...[
+                      Row(
+                        children: [
+                          const Text(
+                            'SELECTED ITEMS',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textSecondaryOnLight,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '$selectedCount · Qty $totalQty',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primaryDark,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: () =>
+                                setState(() => _selected.clear()),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'Clear all',
+                              style: TextStyle(
+                                color: AppColors.error,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      ..._selected.entries.map((entry) {
+                        final item = entry.value['item'];
+                        final qty = entry.value['quantity'] as int;
+                        final stock = _stockOf(item);
+                        final name = item['name']?.toString() ?? 'Unnamed';
+                        final price = item['selling_price'];
+                        final hasPhoto = item['photo_url'] != null &&
+                            item['photo_url'].toString().isNotEmpty;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: AppColors.primary.withOpacity(0.3),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.03),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              // Thumbnail
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: SizedBox(
+                                  width: 48,
+                                  height: 48,
+                                  child: hasPhoto
+                                      ? Image.network(
+                                    item['photo_url'],
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) =>
+                                        _thumbPlaceholder(),
+                                  )
+                                      : _thumbPlaceholder(),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+
+                              // Details
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 14,
+                                        color: AppColors.textPrimaryOnLight,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'UGX $price  ·  Stock $stock',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color:
+                                        AppColors.textSecondaryOnLight,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // Qty controls
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceMuted,
+                                  borderRadius: BorderRadius.circular(30),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 2),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(Icons.remove_rounded,
+                                          size: 18),
+                                      color: AppColors.textPrimaryOnLight,
+                                      onPressed: () =>
+                                          _setQty(item, qty - 1),
+                                    ),
+                                    SizedBox(
+                                      width: 24,
+                                      child: Text(
+                                        '$qty',
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14,
+                                          color:
+                                          AppColors.textPrimaryOnLight,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(Icons.add_rounded,
+                                          size: 18),
+                                      color: qty < stock
+                                          ? AppColors.primary
+                                          : AppColors.textSecondaryOnLight
+                                          .withOpacity(0.3),
+                                      onPressed: qty < stock
+                                          ? () => _setQty(item, qty + 1)
+                                          : null,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+
+                      const SizedBox(height: 20),
+                    ],
+
+                    // ── Search (when active) ────────────────────────────
+                    if (_searching) ...[
+                      TextField(
+                        controller: _searchController,
+                        autofocus: true,
+                        style: const TextStyle(
+                          color: AppColors.textPrimaryOnLight,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        decoration: _fieldDecoration(
+                          label: 'Search items',
+                          hint: 'Type item name...',
+                          prefixIcon: Icons.search_rounded,
+                        ),
+                        onChanged: (v) => setState(() => _query = v),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // ── Item grid ───────────────────────────────────────
+                    const Text(
+                      'SELECT ITEMS',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondaryOnLight,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    itemsAsync.when(
+                      loading: () => const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 32),
+                          child: CircularProgressIndicator(
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                      error: (e, _) => Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.error.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Text(
+                          'Failed to load items: $e',
+                          style: const TextStyle(color: AppColors.error),
+                        ),
+                      ),
+                      data: (items) {
+                        final filtered = _query.isEmpty
+                            ? items
+                            : items
+                            .where((it) => (it['name'] ?? '')
+                            .toString()
+                            .toLowerCase()
+                            .contains(_query.toLowerCase()))
+                            .toList();
+
+                        if (filtered.isEmpty) {
+                          return Center(
+                            child: Padding(
+                              padding:
+                              const EdgeInsets.symmetric(vertical: 32),
+                              child: Text(
+                                _query.isEmpty
+                                    ? 'No items available'
+                                    : 'No items match "$_query"',
+                                style: const TextStyle(
+                                  color: AppColors.textSecondaryOnLight,
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            childAspectRatio: 0.72,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                          ),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, i) {
+                            final item = filtered[i];
+                            final id = item['id'].toString();
+                            final name =
+                                item['name']?.toString() ?? 'Unnamed';
+                            final stock = _stockOf(item);
+                            final qty = _qtyOf(id);
+                            final selected = qty > 0;
+                            final hasPhoto = item['photo_url'] != null &&
+                                item['photo_url'].toString().isNotEmpty;
+                            final outOfStock = stock <= 0;
+
+                            return GestureDetector(
+                              onTap: outOfStock
+                                  ? null
+                                  : () => _setQty(item, qty + 1),
+                              child: Opacity(
+                                opacity: outOfStock ? 0.5 : 1,
+                                child: Column(
+                                  crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                color:
+                                                AppColors.surfaceMuted,
+                                                borderRadius:
+                                                BorderRadius.circular(
+                                                    14),
+                                                border: selected
+                                                    ? Border.all(
+                                                  color: AppColors
+                                                      .primary,
+                                                  width: 2,
+                                                )
+                                                    : null,
+                                                image: hasPhoto
+                                                    ? DecorationImage(
+                                                  image: NetworkImage(
+                                                      item[
+                                                      'photo_url']),
+                                                  fit: BoxFit.cover,
+                                                )
+                                                    : null,
+                                              ),
+                                              child: !hasPhoto
+                                                  ? const Center(
+                                                child: Icon(
+                                                  Icons
+                                                      .inventory_2_outlined,
+                                                  color: AppColors
+                                                      .textSecondaryOnLight,
+                                                  size: 28,
+                                                ),
+                                              )
+                                                  : null,
+                                            ),
+                                          ),
+
+                                          // Stock badge
+                                          Positioned(
+                                            top: 6,
+                                            right: 6,
+                                            child: Container(
+                                              padding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 6,
+                                                  vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: outOfStock
+                                                    ? AppColors.error
+                                                    : AppColors.stockBadge,
+                                                borderRadius:
+                                                BorderRadius.circular(
+                                                    20),
+                                              ),
+                                              child: Text(
+                                                outOfStock
+                                                    ? 'Out'
+                                                    : '$stock',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight:
+                                                  FontWeight.w700,
+                                                  color: outOfStock
+                                                      ? Colors.white
+                                                      : AppColors
+                                                      .stockBadgeText,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+
+                                          // Qty badge when selected
+                                          if (selected)
+                                            Positioned(
+                                              bottom: 6,
+                                              left: 6,
+                                              child: Container(
+                                                padding:
+                                                const EdgeInsets
+                                                    .symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.primary,
+                                                  borderRadius:
+                                                  BorderRadius.circular(
+                                                      20),
+                                                ),
+                                                child: Text(
+                                                  '×$qty',
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight:
+                                                    FontWeight.w800,
+                                                    color: AppColors
+                                                        .textOnPrimary,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: selected
+                                            ? AppColors.primaryDark
+                                            : AppColors
+                                            .textPrimaryOnLight,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      'UGX ${item['selling_price']}',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors
+                                            .textSecondaryOnLight,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -563,9 +711,8 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: (_submitting || selectedCount == 0)
-                      ? null
-                      : _submit,
+                  onPressed:
+                  (_submitting || selectedCount == 0) ? null : _submit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: AppColors.textOnPrimary,
@@ -599,6 +746,19 @@ class _LoanCreateScreenState extends ConsumerState<LoanCreateScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _thumbPlaceholder() {
+    return Container(
+      color: AppColors.surfaceMuted,
+      child: const Center(
+        child: Icon(
+          Icons.inventory_2_outlined,
+          size: 22,
+          color: AppColors.textHint,
         ),
       ),
     );

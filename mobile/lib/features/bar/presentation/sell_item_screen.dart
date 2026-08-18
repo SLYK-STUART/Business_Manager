@@ -24,6 +24,12 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
     return null;
   }
 
+  Future<void> _refreshItems() async {
+    ref.invalidate(itemListProvider);
+    // Wait until the new data is available so the indicator dismisses cleanly
+    await ref.read(itemListProvider.future);
+  }
+
   @override
   Widget build(BuildContext context) {
     final itemsAsync = ref.watch(itemListProvider);
@@ -56,10 +62,19 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
           ),
         ),
         actions: [
+          // Manual refresh button
+          IconButton(
+            tooltip: 'Refresh stock',
+            onPressed: _refreshItems,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
           if (cart.isNotEmpty)
             IconButton(
-              onPressed: () =>
-                  Navigator.of(context).pushNamed('/sale-confirm'),
+              onPressed: () async {
+                await Navigator.of(context).pushNamed('/sale-confirm');
+                // After a sale, force a fresh stock fetch
+                if (mounted) await _refreshItems();
+              },
               icon: Stack(
                 clipBehavior: Clip.none,
                 children: [
@@ -185,16 +200,27 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
 
           const SizedBox(height: 8),
 
-          // ── Grid ────────────────────────────────────────────────────
+          // ── Grid (now refreshable) ──────────────────────────────────
           Expanded(
             child: itemsAsync.when(
               loading: () => const Center(
                 child: CircularProgressIndicator(color: AppColors.primary),
               ),
               error: (e, _) => Center(
-                child: Text(
-                  'Failed: $e',
-                  style: const TextStyle(color: AppColors.error),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Failed: $e',
+                      style: const TextStyle(color: AppColors.error),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: _refreshItems,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Retry'),
+                    ),
+                  ],
                 ),
               ),
               data: (items) {
@@ -212,34 +238,49 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
                 }).toList();
 
                 if (filtered.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'No items found',
-                      style: TextStyle(
-                        color: AppColors.textSecondaryOnLight,
-                        fontSize: 15,
-                      ),
+                  return RefreshIndicator(
+                    color: AppColors.primary,
+                    onRefresh: _refreshItems,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 120),
+                        Center(
+                          child: Text(
+                            'No items found',
+                            style: TextStyle(
+                              color: AppColors.textSecondaryOnLight,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   );
                 }
 
-                return GridView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 170),
-                  gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    childAspectRatio: 0.82,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
+                return RefreshIndicator(
+                  color: AppColors.primary,
+                  onRefresh: _refreshItems,
+                  child: GridView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 170),
+                    gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 0.82,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: filtered.length,
+                    itemBuilder: (context, i) {
+                      final item = filtered[i];
+                      return GestureDetector(
+                        onTap: () => _showQuantitySheet(item),
+                        child: _ItemGridCard(item: item),
+                      );
+                    },
                   ),
-                  itemCount: filtered.length,
-                  itemBuilder: (context, i) {
-                    final item = filtered[i];
-                    return GestureDetector(
-                      onTap: () => _showQuantitySheet(item),
-                      child: _ItemGridCard(item: item),
-                    );
-                  },
                 );
               },
             ),
@@ -353,306 +394,316 @@ class _SellItemScreenState extends ConsumerState<SellItemScreen> {
           final subtotal =
               (unitPrice * quantity) - (applyDiscount ? discount : 0);
 
-          return Container(
+          return Padding(
+            // Keeps the sheet above the keyboard
             padding: EdgeInsets.only(
-              left: 20,
-              right: 20,
-              top: 12,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 80,
+              bottom: MediaQuery.of(context).viewInsets.bottom,
             ),
-            decoration: const BoxDecoration(
-              color: AppColors.surfaceLight,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.borderOnLight,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Header
-                Row(
+            child: Container(
+              constraints: BoxConstraints(
+                // Never taller than ~90% of the screen
+                maxHeight: MediaQuery.of(context).size.height * 0.9,
+              ),
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceLight,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 60),
+                keyboardDismissBehavior:
+                ScrollViewKeyboardDismissBehavior.onDrag,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    // handle
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 40,
+                      height: 4,
                       decoration: BoxDecoration(
-                        color: AppColors.surfaceMuted,
-                        borderRadius: BorderRadius.circular(10),
-                        image: item['photo_url'] != null &&
-                            item['photo_url'] != ''
-                            ? DecorationImage(
-                          image: NetworkImage(item['photo_url']),
-                          fit: BoxFit.cover,
-                        )
-                            : null,
-                      ),
-                      child: (item['photo_url'] == null ||
-                          item['photo_url'] == '')
-                          ? const Icon(
-                        Icons.image_outlined,
-                        color: AppColors.textSecondaryOnLight,
-                        size: 20,
-                      )
-                          : null,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item['name'],
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textPrimaryOnLight,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'UGX ${unitPrice.toStringAsFixed(2)} each · $stock in stock',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: quantity >= stock
-                                  ? AppColors.warning
-                                  : AppColors.textSecondaryOnLight,
-                              fontWeight: quantity >= stock
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        ],
+                        color: AppColors.borderOnLight,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: const BoxDecoration(
-                          color: AppColors.surfaceMuted,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.close,
-                          size: 18,
-                          color: AppColors.textSecondaryOnLight,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                    const SizedBox(height: 16),
 
-                const SizedBox(height: 24),
-                const Text(
-                  'QUANTITY',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                    color: AppColors.textSecondaryOnLight,
-                  ),
-                ),
-                const SizedBox(height: 8),
+                    // … keep the rest of your sheet widgets unchanged
+                    // (header, quantity, subtotal, discount toggle + field,
+                    //  total, Add to cart button)
 
-                // Stepper
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _StepperButton(
-                      icon: Icons.remove,
-                      filled: false,
-                      onTap: () => setSheetState(
-                            () => quantity = quantity > 1 ? quantity - 1 : 1,
-                      ),
-                    ),
-                    Text(
-                      '$quantity',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimaryOnLight,
-                      ),
-                    ),
-                    _StepperButton(
-                      icon: Icons.add,
-                      filled: true,
-                      enabled: quantity < stock,
-                      onTap: () => setSheetState(() {
-                        if (quantity < stock) quantity++;
-                      }),
-                    ),
-                  ],
-                ),
-                if (quantity >= stock)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Max available',
-                      style:
-                      TextStyle(fontSize: 12, color: AppColors.warning),
-                    ),
-                  ),
-
-                const SizedBox(height: 20),
-                const Divider(color: AppColors.borderOnLight, height: 1),
-                const SizedBox(height: 16),
-
-                // Subtotal
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Subtotal',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textSecondaryOnLight,
-                      ),
-                    ),
-                    Text(
-                      'UGX ${(unitPrice * quantity).toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimaryOnLight,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-                const Divider(color: AppColors.borderOnLight, height: 1),
-
-                // Discount toggle
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Row(
+                    // Header
+                    Row(
                       children: [
-                        Icon(
-                          Icons.local_offer_outlined,
-                          size: 18,
-                          color: AppColors.textPrimaryOnLight,
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceMuted,
+                            borderRadius: BorderRadius.circular(10),
+                            image: item['photo_url'] != null &&
+                                item['photo_url'] != ''
+                                ? DecorationImage(
+                              image: NetworkImage(item['photo_url']),
+                              fit: BoxFit.cover,
+                            )
+                                : null,
+                          ),
+                          child: (item['photo_url'] == null ||
+                              item['photo_url'] == '')
+                              ? const Icon(
+                            Icons.image_outlined,
+                            color: AppColors.textSecondaryOnLight,
+                            size: 20,
+                          )
+                              : null,
                         ),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item['name'],
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimaryOnLight,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'UGX ${unitPrice.toStringAsFixed(2)} each · $stock in stock',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: quantity >= stock
+                                      ? AppColors.warning
+                                      : AppColors.textSecondaryOnLight,
+                                  fontWeight: quantity >= stock
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: const BoxDecoration(
+                              color: AppColors.surfaceMuted,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.close,
+                              size: 18,
+                              color: AppColors.textSecondaryOnLight,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 24),
+                    const Text(
+                      'QUANTITY',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.8,
+                        color: AppColors.textSecondaryOnLight,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _StepperButton(
+                          icon: Icons.remove,
+                          filled: false,
+                          onTap: () => setSheetState(
+                                () => quantity = quantity > 1 ? quantity - 1 : 1,
+                          ),
+                        ),
                         Text(
-                          'Apply discount',
+                          '$quantity',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimaryOnLight,
+                          ),
+                        ),
+                        _StepperButton(
+                          icon: Icons.add,
+                          filled: true,
+                          enabled: quantity < stock,
+                          onTap: () => setSheetState(() {
+                            if (quantity < stock) quantity++;
+                          }),
+                        ),
+                      ],
+                    ),
+                    if (quantity >= stock)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Max available',
+                          style:
+                          TextStyle(fontSize: 12, color: AppColors.warning),
+                        ),
+                      ),
+
+                    const SizedBox(height: 20),
+                    const Divider(color: AppColors.borderOnLight, height: 1),
+                    const SizedBox(height: 16),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Subtotal',
                           style: TextStyle(
                             fontSize: 14,
+                            color: AppColors.textSecondaryOnLight,
+                          ),
+                        ),
+                        Text(
+                          'UGX ${(unitPrice * quantity).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
                             color: AppColors.textPrimaryOnLight,
                           ),
                         ),
                       ],
                     ),
-                    Switch(
-                      value: applyDiscount,
-                      activeColor: AppColors.textOnPrimary,
-                      activeTrackColor: AppColors.toggleActive,
-                      inactiveTrackColor: AppColors.toggleInactive,
-                      onChanged: (v) =>
-                          setSheetState(() => applyDiscount = v),
+
+                    const SizedBox(height: 12),
+                    const Divider(color: AppColors.borderOnLight, height: 1),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.local_offer_outlined,
+                              size: 18,
+                              color: AppColors.textPrimaryOnLight,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Apply discount',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppColors.textPrimaryOnLight,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Switch(
+                          value: applyDiscount,
+                          activeColor: AppColors.textOnPrimary,
+                          activeTrackColor: AppColors.toggleActive,
+                          inactiveTrackColor: AppColors.toggleInactive,
+                          onChanged: (v) =>
+                              setSheetState(() => applyDiscount = v),
+                        ),
+                      ],
+                    ),
+
+                    if (applyDiscount)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8, top: 4),
+                        child: TextField(
+                          controller: discountController,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(
+                            color: AppColors.textPrimaryOnLight,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Discount amount',
+                            labelStyle: const TextStyle(
+                              color: AppColors.textSecondaryOnLight,
+                            ),
+                            filled: true,
+                            fillColor: AppColors.surfaceMuted,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                          onChanged: (v) => setSheetState(
+                                () => discount = double.tryParse(v) ?? 0,
+                          ),
+                        ),
+                      ),
+
+                    const Divider(color: AppColors.borderOnLight, height: 1),
+                    const SizedBox(height: 12),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Transaction total · 1 line',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondaryOnLight,
+                          ),
+                        ),
+                        Text(
+                          'UGX ${subtotal.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimaryOnLight,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: AppColors.textOnPrimary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 0,
+                        ),
+                        onPressed: () {
+                          ref.read(cartProvider.notifier).addOrUpdate(
+                            item['id'],
+                            item['name'],
+                            unitPrice,
+                            quantity,
+                          );
+                          if (applyDiscount) {
+                            ref
+                                .read(cartProvider.notifier)
+                                .setDiscount(item['id'], discount);
+                          }
+                          Navigator.pop(context);
+                        },
+                        child: const Text(
+                          'Add to cart',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
-
-                if (applyDiscount)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: TextField(
-                      controller: discountController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(
-                        color: AppColors.textPrimaryOnLight,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: 'Discount amount',
-                        labelStyle: const TextStyle(
-                          color: AppColors.textSecondaryOnLight,
-                        ),
-                        filled: true,
-                        fillColor: AppColors.surfaceMuted,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                      onChanged: (v) => setSheetState(
-                            () => discount = double.tryParse(v) ?? 0,
-                      ),
-                    ),
-                  ),
-
-                const Divider(color: AppColors.borderOnLight, height: 1),
-                const SizedBox(height: 12),
-
-                // Total
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Transaction total · 1 line',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondaryOnLight,
-                      ),
-                    ),
-                    Text(
-                      'UGX ${subtotal.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimaryOnLight,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: AppColors.textOnPrimary,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 0,
-                    ),
-                    onPressed: () {
-                      ref.read(cartProvider.notifier).addOrUpdate(
-                        item['id'],
-                        item['name'],
-                        unitPrice,
-                        quantity,
-                      );
-                      if (applyDiscount) {
-                        ref
-                            .read(cartProvider.notifier)
-                            .setDiscount(item['id'], discount);
-                      }
-                      Navigator.pop(context);
-                    },
-                    child: const Text(
-                      'Add to cart',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           );
         },
@@ -677,79 +728,87 @@ class _ItemGridCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final stock = item['current_stock'];
     final hasPhoto = item['photo_url'] != null && item['photo_url'] != '';
+    final isOutOfStock = (stock is num && stock <= 0);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceMuted,
-                    borderRadius: BorderRadius.circular(14),
-                    image: hasPhoto
-                        ? DecorationImage(
-                      image: NetworkImage(item['photo_url']),
-                      fit: BoxFit.cover,
+    return Opacity(
+      opacity: isOutOfStock ? 0.55 : 1,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceMuted,
+                      borderRadius: BorderRadius.circular(14),
+                      image: hasPhoto
+                          ? DecorationImage(
+                        image: NetworkImage(item['photo_url']),
+                        fit: BoxFit.cover,
+                      )
+                          : null,
+                    ),
+                    child: !hasPhoto
+                        ? const Center(
+                      child: Icon(
+                        Icons.inventory_2_outlined,
+                        color: AppColors.textSecondaryOnLight,
+                        size: 32,
+                      ),
                     )
                         : null,
                   ),
-                  child: !hasPhoto
-                      ? const Center(
-                    child: Icon(
-                      Icons.inventory_2_outlined,
-                      color: AppColors.textSecondaryOnLight,
-                      size: 32,
-                    ),
-                  )
-                      : null,
                 ),
-              ),
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.stockBadge,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '$stock left',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.stockBadgeText,
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isOutOfStock
+                          ? AppColors.error
+                          : AppColors.stockBadge,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      isOutOfStock ? 'Out' : '$stock left',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: isOutOfStock
+                            ? Colors.white
+                            : AppColors.stockBadgeText,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          item['name'],
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimaryOnLight,
+          const SizedBox(height: 8),
+          Text(
+            item['name'],
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimaryOnLight,
+            ),
           ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          'UGX ${item['selling_price']}',
-          style: const TextStyle(
-            fontSize: 12,
-            color: AppColors.textSecondaryOnLight,
+          const SizedBox(height: 2),
+          Text(
+            'UGX ${item['selling_price']}',
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondaryOnLight,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

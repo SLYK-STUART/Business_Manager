@@ -177,12 +177,18 @@ class SaleCreateSerializer(serializers.Serializer):
             sale.discount_total = discount_total
             sale.save()
 
-            from .models import CollectionPeriod
+            from .models import CollectionPeriod, SaleLineItem
+
             period, _ = CollectionPeriod.objects.get_or_create(
                 business=business, module="bar", status="open",
                 defaults={"opening_expected_amount": 0},
             )
-            period.opening_expected_amount += sale.total_amount
+
+            cash_total = sum(
+                li.line_total for li in sale.line_items.all()
+                if li.payment_status == SaleLineItem.PaymentStatus.PAID_FULL
+            )
+            period.opening_expected_amount += cash_total
             period.save()
 
         return sale

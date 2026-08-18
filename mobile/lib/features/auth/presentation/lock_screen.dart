@@ -72,18 +72,21 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     });
 
     try {
-      final ok = await ref
-          .read(lockRepositoryProvider)
-          .verifyPasscode(code);
+      final ok = await ref.read(lockRepositoryProvider).verifyPasscode(code);
 
       if (ok) {
         ref.read(appLockProvider.notifier).unlock();
       } else {
-        setState(() {
-          _error = 'Incorrect passcode';
-          _passcodeController.clear();
+        _passcodeController.clear();
+        _passcodeFocus.unfocus();
+        setState(() => _error = 'Incorrect passcode');
+
+        // Refocus on the next frame, after the IME has actually torn down —
+        // fixes a known Samsung/Android keyboard bug where the old digits'
+        // composing state survives a plain controller.clear().
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _passcodeFocus.requestFocus();
         });
-        _passcodeFocus.requestFocus();
       }
     } catch (_) {
       setState(() => _error = 'Something went wrong. Please try again.');
@@ -200,6 +203,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                           maxLength: 6,
                           textAlign: TextAlign.center,
                           textInputAction: TextInputAction.done,
+                          autocorrect: false,
+                          enableIMEPersonalizedLearning: false,
                           onSubmitted: (_) => _submitPasscode(),
                           inputFormatters: [
                             FilteringTextInputFormatter.digitsOnly,

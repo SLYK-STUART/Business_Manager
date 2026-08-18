@@ -4,11 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../domain/pending_pricing_providers.dart';
 
-class PendingPricingScreen extends ConsumerWidget {
+class PendingPricingScreen extends ConsumerStatefulWidget {
   const PendingPricingScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PendingPricingScreen> createState() =>
+      _PendingPricingScreenState();
+}
+
+class _PendingPricingScreenState extends ConsumerState<PendingPricingScreen> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
     final listAsync = ref.watch(pendingPricingListProvider);
     final bottomClearance = MediaQuery.of(context).padding.bottom + 90;
 
@@ -19,13 +27,26 @@ class PendingPricingScreen extends ConsumerWidget {
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
-        title: const Text(
-          'Set Buying Prices',
-          style: TextStyle(
-            color: AppColors.textPrimaryOnLight,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-            letterSpacing: -0.3,
+        title: listAsync.maybeWhen(
+          data: (items) => Text(
+            items.isEmpty
+                ? 'Set Buying Prices'
+                : 'Set Buying Prices · ${items.length}',
+            style: const TextStyle(
+              color: AppColors.textPrimaryOnLight,
+              fontWeight: FontWeight.w600,
+              fontSize: 17,
+              letterSpacing: -0.3,
+            ),
+          ),
+          orElse: () => const Text(
+            'Set Buying Prices',
+            style: TextStyle(
+              color: AppColors.textPrimaryOnLight,
+              fontWeight: FontWeight.w600,
+              fontSize: 17,
+              letterSpacing: -0.3,
+            ),
           ),
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimaryOnLight),
@@ -68,7 +89,7 @@ class PendingPricingScreen extends ConsumerWidget {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'All restocks are priced ✅',
+                      'All restocks are priced',
                       style: TextStyle(
                         color: AppColors.textSecondaryOnLight,
                         fontSize: 14,
@@ -80,111 +101,201 @@ class PendingPricingScreen extends ConsumerWidget {
             );
           }
 
-          return RefreshIndicator(
-            color: AppColors.primary,
-            onRefresh: () async =>
-                ref.invalidate(pendingPricingListProvider),
-            child: ListView.separated(
-              padding: EdgeInsets.fromLTRB(20, 8, 20, bottomClearance),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, i) {
-                final entry = items[i];
+          final filtered = _query.isEmpty
+              ? items
+              : items.where((e) {
+            final name =
+            (e['item_name']?.toString() ?? '').toLowerCase();
+            final by =
+            (e['restocked_by']?.toString() ?? '').toLowerCase();
+            final q = _query.toLowerCase();
+            return name.contains(q) || by.contains(q);
+          }).toList();
 
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.borderOnLight),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
+          return Column(
+            children: [
+              // Search
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: TextField(
+                  onChanged: (v) => setState(() => _query = v.trim()),
+                  style: const TextStyle(
+                    color: AppColors.textPrimaryOnLight,
+                    fontSize: 14,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  decoration: InputDecoration(
+                    hintText: 'Search item or restocked by…',
+                    hintStyle: const TextStyle(
+                      color: AppColors.textHint,
+                      fontSize: 13.5,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: AppColors.textSecondaryOnLight,
+                      size: 20,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surfaceMuted,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+
+              Expanded(
+                child: RefreshIndicator(
+                  color: AppColors.primary,
+                  onRefresh: () async =>
+                      ref.invalidate(pendingPricingListProvider),
+                  child: filtered.isEmpty
+                      ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     children: [
-                      Text(
-                        entry['item_name'] ?? 'Unknown item',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                          color: AppColors.textPrimaryOnLight,
+                      const SizedBox(height: 80),
+                      Center(
+                        child: Text(
+                          'No matches for “$_query”',
+                          style: const TextStyle(
+                            color: AppColors.textSecondaryOnLight,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.add_circle_outline_rounded,
-                            size: 14,
-                            color: AppColors.textSecondaryOnLight,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '+${entry['quantity']} units',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textSecondaryOnLight,
+                    ],
+                  )
+                      : ListView.separated(
+                    padding: EdgeInsets.fromLTRB(
+                        20, 4, 20, bottomClearance),
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) =>
+                    const SizedBox(height: 8),
+                    itemBuilder: (context, i) {
+                      final entry = filtered[i];
+                      final qty = entry['quantity'];
+                      final by = entry['restocked_by'] ?? 'Unknown';
+                      final dateRaw = entry['created_at'] ??
+                          entry['restocked_at'] ??
+                          entry['date'];
+                      final dateLabel = _formatDate(dateRaw);
+
+                      return Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () =>
+                              _showPriceSheet(context, ref, entry),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Icon(
-                            Icons.person_outline_rounded,
-                            size: 14,
-                            color: AppColors.textSecondaryOnLight,
-                          ),
-                          const SizedBox(width: 4),
-                          Flexible(
-                            child: Text(
-                              entry['restocked_by'] ?? 'Unknown',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: AppColors.textSecondaryOnLight,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: AppColors.borderOnLight,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 44,
-                        child: ElevatedButton(
-                          onPressed: () =>
-                              _showPriceSheet(context, ref, entry),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: AppColors.textOnPrimary,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'Set Buying Price',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary
+                                        .withOpacity(0.12),
+                                    borderRadius:
+                                    BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(
+                                    Icons.sell_outlined,
+                                    size: 18,
+                                    color: AppColors.primaryDark,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        entry['item_name'] ??
+                                            'Unknown item',
+                                        maxLines: 1,
+                                        overflow:
+                                        TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14,
+                                          color: AppColors
+                                              .textPrimaryOnLight,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        [
+                                          '+$qty units',
+                                          by.toString(),
+                                          if (dateLabel != null)
+                                            dateLabel,
+                                        ].join('  ·  '),
+                                        maxLines: 1,
+                                        overflow:
+                                        TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors
+                                              .textSecondaryOnLight,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary,
+                                    borderRadius:
+                                    BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'Set price',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                      color: AppColors.textOnPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           );
         },
       ),
     );
+  }
+
+  String? _formatDate(dynamic raw) {
+    if (raw == null) return null;
+    final dt = DateTime.tryParse(raw.toString());
+    if (dt == null) return raw.toString();
+    return '${dt.day}/${dt.month}/${dt.year}';
   }
 
   void _showPriceSheet(
@@ -195,6 +306,7 @@ class PendingPricingScreen extends ConsumerWidget {
     String mode = 'unit';
     final priceController = TextEditingController();
     bool submitting = false;
+    final qty = (entry['quantity'] as num?)?.toDouble() ?? 0;
 
     showModalBottomSheet(
       context: context,
@@ -202,6 +314,23 @@ class PendingPricingScreen extends ConsumerWidget {
       backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
+          final price = double.tryParse(priceController.text);
+          String? preview;
+          if (price != null && price > 0 && qty > 0) {
+            if (mode == 'unit') {
+              final total = price * qty;
+              preview =
+              'Total cost: UGX ${total.toStringAsFixed(total == total.truncateToDouble() ? 0 : 2)}';
+            } else {
+              final unit = price / qty;
+              preview =
+              '≈ UGX ${unit.toStringAsFixed(2)} per unit';
+            }
+          }
+
+          final canSave =
+              !submitting && price != null && price > 0;
+
           return Padding(
             padding: EdgeInsets.only(
               bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -209,14 +338,14 @@ class PendingPricingScreen extends ConsumerWidget {
             child: Container(
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius:
+                BorderRadius.vertical(top: Radius.circular(24)),
               ),
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Handle
                   Center(
                     child: Container(
                       width: 40,
@@ -227,12 +356,11 @@ class PendingPricingScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
-
+                  const SizedBox(height: 18),
                   Text(
                     entry['item_name'] ?? '',
                     style: const TextStyle(
-                      fontSize: 18,
+                      fontSize: 17,
                       fontWeight: FontWeight.w800,
                       color: AppColors.textPrimaryOnLight,
                       letterSpacing: -0.3,
@@ -240,15 +368,15 @@ class PendingPricingScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${entry['quantity']} units added',
+                    '${entry['quantity']} units added'
+                        '${entry['restocked_by'] != null ? ' · by ${entry['restocked_by']}' : ''}',
                     style: const TextStyle(
                       fontSize: 13,
                       color: AppColors.textSecondaryOnLight,
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
 
-                  // Mode selector
                   SegmentedButton<String>(
                     segments: const [
                       ButtonSegment(
@@ -290,17 +418,18 @@ class PendingPricingScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
 
                   TextField(
                     controller: priceController,
-                    keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(
                         RegExp(r'^\d*\.?\d{0,2}'),
                       ),
                     ],
+                    onChanged: (_) => setSheetState(() {}),
                     style: const TextStyle(
                       fontWeight: FontWeight.w600,
                       color: AppColors.textPrimaryOnLight,
@@ -314,20 +443,21 @@ class PendingPricingScreen extends ConsumerWidget {
                       labelStyle: const TextStyle(
                         color: AppColors.textSecondaryOnLight,
                         fontWeight: FontWeight.w500,
+                        fontSize: 13,
                       ),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
-                        vertical: 16,
+                        vertical: 14,
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                        const BorderSide(color: AppColors.borderOnLight),
+                        borderSide: const BorderSide(
+                            color: AppColors.borderOnLight),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                        const BorderSide(color: AppColors.borderOnLight),
+                        borderSide: const BorderSide(
+                            color: AppColors.borderOnLight),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -338,36 +468,62 @@ class PendingPricingScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
 
+                  if (preview != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      preview,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
-                    height: 52,
+                    height: 50,
                     child: ElevatedButton(
-                      onPressed: submitting
-                          ? null
-                          : () async {
-                        final price =
+                      onPressed: canSave
+                          ? () async {
+                        final p =
                         double.tryParse(priceController.text);
-                        if (price == null || price <= 0) return;
+                        if (p == null || p <= 0) return;
 
                         setSheetState(() => submitting = true);
                         try {
                           await ref
-                              .read(pendingPricingRepositoryProvider)
+                              .read(
+                              pendingPricingRepositoryProvider)
                               .setPrice(
                             entry['restock_id'],
                             mode: mode,
                             unitPrice:
-                            mode == 'unit' ? price : null,
+                            mode == 'unit' ? p : null,
                             totalPrice:
-                            mode == 'bulk' ? price : null,
+                            mode == 'bulk' ? p : null,
                           );
-                          ref.invalidate(pendingPricingListProvider);
-                          if (context.mounted) Navigator.pop(context);
+                          ref.invalidate(
+                              pendingPricingListProvider);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Price set for ${entry['item_name'] ?? 'item'}',
+                                ),
+                                backgroundColor: AppColors.success,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
                         } catch (e) {
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(
                               SnackBar(
                                 content: Text('Failed: $e'),
                                 backgroundColor: AppColors.error,
@@ -378,15 +534,16 @@ class PendingPricingScreen extends ConsumerWidget {
                         } finally {
                           setSheetState(() => submitting = false);
                         }
-                      },
+                      }
+                          : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: AppColors.textOnPrimary,
                         disabledBackgroundColor:
-                        AppColors.primary.withOpacity(0.45),
+                        AppColors.primary.withOpacity(0.4),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                       child: submitting
@@ -401,7 +558,7 @@ class PendingPricingScreen extends ConsumerWidget {
                           : const Text(
                         'Save Price',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
                       ),

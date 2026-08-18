@@ -75,29 +75,49 @@ def _resolve_giveaway(approval, approved):
         item.save()
 def _resolve_shortfall(approval, approved):
     from apps.bar.models import CashCollection
+    from django.db.models import Sum
+    from decimal import Decimal
 
     collection = CashCollection.objects.get(id=approval.reference_id)
+    period = collection.collection_period
+
+    # Calculate revenue that accrued AFTER this collection was submitted
+    # i.e. sales that happened between collection.timestamp and now
+    # that haven't been "collected" yet and must be preserved regardless
+    # of whether we approve or reject
+    from apps.bar.models import Sale
+    post_collection_revenue = Sale.objects.filter(
+        business=period.business,
+        created_at__gt=collection.timestamp,
+        # only sales within this period
+        created_at__gte=period.period_start,
+    ).aggregate(
+        total=Sum('total_price')
+    )['total'] or Decimal('0')
+
     if approved:
         collection.status = "approved"
         collection.save()
-        period = collection.collection_period
 
         if approval.classification == "shortfall":
-            # Genuine loss — the remaining gap is written off, not carried
-            # forward as still-owed cash. Already reflected in actual profit
-            # via the approved_shortfalls deduction in profit_report().
-            period.opening_expected_amount = 0
-        # classification == "matched" needs no change here — the tentative
-        # "remaining" value set at submission time is already correct: it's
-        # money deliberately left in the business, still genuinely expected.
+            # Write off only what was owed at collection time.
+            # Post-collection revenue is still genuinely expected.
+            period.opening_expected_amount = post_collection_revenue
+        # classification == "matched": tentative remaining value is correct,
+        # nothing to change beyond preserving post-collection revenue
+        # (already tracked via normal sale signals)
 
         period.last_collection_at = collection.timestamp
         period.save()
     else:
+        # Rejected: restore to pre-submission snapshot + add back
+        # all revenue that accrued between submission and now
         collection.status = "rejected"
         collection.save()
-        period = collection.collection_period
-        period.opening_expected_amount = collection.previous_expected_amount
+
+        period.opening_expected_amount = (
+                collection.previous_expected_amount + post_collection_revenue
+        )
         period.save()
 
 def create_approval_or_auto_approve(business, type_, reference_id, requested_by, classification=None):
